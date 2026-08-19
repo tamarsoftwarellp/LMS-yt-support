@@ -557,24 +557,24 @@ export function SSCVGenerator() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="w-full max-w-full min-w-0 space-y-5 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between min-w-0">
         <div>
-          <div className="flex items-baseline gap-3 mb-1">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-1 min-w-0">
             <span className="text-[10.5px] font-medium px-2 py-0.5 rounded bg-[#E8ECF5] text-[#5A6A8A]" style={{ fontFamily: "var(--font-mono)" }}>2.7</span>
-            <h2 className="text-[17px] text-[#0F1C3F]" style={{ fontFamily: "var(--font-serif)" }}>Dynamic CV Generator</h2>
-            <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><ShieldCheck size={10} /> ATS-Optimised</span>
+            <h2 className="text-[16px] sm:text-[17px] text-[#0F1C3F] break-words" style={{ fontFamily: "var(--font-serif)" }}>Dynamic CV Generator</h2>
+            <span className="max-w-full flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full"><ShieldCheck size={10} /> ATS-Optimised</span>
           </div>
           <p className="text-[12.5px] text-[#5A6A8A]">Auto-generated from your verified profile. Toggle sections, edit inline, then export.</p>
         </div>
         {/* ATS Score */}
-        <div className="flex items-center gap-3 bg-white border border-[--border] rounded-xl px-4 py-3 shadow-sm shrink-0">
+        <div className="w-full lg:w-auto md:flex py-6 items-center gap-3 bg-white border border-[--border] rounded-xl px-3 sm:px-4  shadow-sm shrink-0">
           <div>
             <p className="text-[10px] font-semibold text-[#9AA5BE] uppercase tracking-wide">ATS Score</p>
             <p className="text-[26px] font-bold leading-none" style={{ fontFamily: "var(--font-serif)", color: atsScore >= 80 ? "#059669" : atsScore >= 60 ? "#D97706" : "#DC2626" }}>{atsScore}%</p>
           </div>
-          <div className="space-y-1 min-w-[140px]">
+          <div className="space-y-1 min-w-0 flex-1 lg:min-w-[140px]">
             {atsChecks.slice(0, 5).map(c => (
               <div key={c.label} className="flex items-center gap-1.5">
                 {c.pass ? <Check size={10} className="text-emerald-500 shrink-0" /> : <X size={10} className="text-red-400 shrink-0" />}
@@ -586,43 +586,42 @@ export function SSCVGenerator() {
       </div>
 
       {/* Export bar */}
-      <div className="flex items-center gap-3 p-4 bg-white border border-[--border] rounded-xl shadow-sm">
-        <span className="text-[12.5px] font-semibold text-[#0F1C3F] mr-1">Export:</span>
+      <div className="flex flex-col gap-3 p-3 sm:p-4 bg-white border border-[--border] rounded-xl shadow-sm">
+        <span className="text-[12.5px] font-semibold text-[#0F1C3F]">Export:</span>
         <button onClick={exportPDF} disabled={!!exporting}
-          className="flex items-center gap-2 px-4 py-2 bg-[#DC2626] text-white text-[13px] rounded-[10px] hover:bg-[#b91c1c] disabled:opacity-50 transition-colors font-semibold shadow-sm">
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-[#DC2626] text-white text-[13px] rounded-[10px] hover:bg-[#b91c1c] disabled:opacity-50 transition-colors font-semibold shadow-sm">
           {exporting === "pdf" ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
           {exportDone === "pdf" ? "PDF Downloaded ✓" : "PDF"}
         </button>
         <button onClick={exportDOCX} disabled={!!exporting}
-          className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] disabled:opacity-50 transition-colors font-semibold shadow-sm">
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] disabled:opacity-50 transition-colors font-semibold shadow-sm">
           {exporting === "docx" ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
           {exportDone === "docx" ? "DOCX Downloaded ✓" : "DOCX"}
         </button>
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[#EFF2FA] rounded-[10px] min-w-0">
+        <div className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-2 min-w-0">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 bg-[#EFF2FA] rounded-[10px] min-w-0 overflow-hidden">
             <Globe size={13} className="text-[#1B3A6B] shrink-0" />
             <span className="text-[12px] text-[#1B3A6B] truncate" style={{ fontFamily: "var(--font-mono)" }}>{cv.publicUrl}</span>
           </div>
           <button onClick={() => { setUrlCopied(true); setTimeout(() => setUrlCopied(false), 2000); }}
-            className="flex items-center gap-1.5 px-3 py-2 border border-[--border] bg-white text-[12.5px] text-[#5A6A8A] rounded-[10px] hover:bg-[#F4F7FC] transition-colors font-medium shrink-0">
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 border border-[--border] bg-white text-[12.5px] text-[#5A6A8A] rounded-[10px] hover:bg-[#F4F7FC] transition-colors font-medium shrink-0">
             {urlCopied ? <><Check size={12} className="text-emerald-500" /> Copied!</> : <><Link size={12} /> Copy URL</>}
           </button>
         </div>
       </div>
 
       {/* Main 2-col layout */}
-      <div className="grid gap-5" style={{ gridTemplateColumns: "280px 1fr" }}>
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-5 w-full min-w-0">
 
         {/* LEFT — Section controls */}
-        <div className="space-y-2">
+        <div className="w-full min-w-0 space-y-2">
           <p className="text-[11.5px] font-semibold text-[#9AA5BE] uppercase tracking-wide px-1">Sections ({visibleSections.length} visible)</p>
           {sections.map(sec => {
             const Icon = sec.icon;
             const isActive = activeSec === sec.id;
             return (
-              <div key={sec.id}
-                className={`rounded-xl border-2 transition-all overflow-hidden ${isActive ? "border-[#1B3A6B] shadow-sm" : "border-[--border]"}`}>
-                <div className={`flex items-center gap-2.5 px-3 py-2.5 cursor-pointer ${isActive ? "bg-[#EBF1FA]" : "bg-white hover:bg-[#F8FAFB]"}`}
+              <div key={sec.id} className={`w-full min-w-0 rounded-xl border-2 transition-all overflow-hidden ${isActive ? "border-[#1B3A6B] shadow-sm" : "border-[--border]"}`}>
+                <div className={`w-full min-w-0 flex items-center gap-2.5 px-3 py-2.5 cursor-pointer ${isActive ? "bg-[#EBF1FA]" : "bg-white hover:bg-[#F8FAFB]"}`}
                   onClick={() => setActiveSec(activeSec === sec.id ? null : sec.id)}>
                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${sec.visible ? "bg-[#1B3A6B]" : "bg-[#E8ECF5]"}`}>
                     <Icon size={12} className={sec.visible ? "text-white" : "text-[#9AA5BE]"} />
@@ -634,7 +633,7 @@ export function SSCVGenerator() {
                   </button>
                 </div>
                 {isActive && (
-                  <div className="border-t border-[--border] p-3 bg-[#FAFBFD]">
+                  <div className="border-t border-[--border] p-2.5 sm:p-3 bg-[#FAFBFD] min-w-0 overflow-hidden">
                     {renderEditor()}
                   </div>
                 )}
@@ -657,15 +656,15 @@ export function SSCVGenerator() {
         </div>
 
         {/* RIGHT — ATS CV Preview */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
+        <div className="w-full min-w-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
             <p className="text-[12px] font-semibold text-[#5A6A8A] uppercase tracking-wide">Live ATS Preview</p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span className="text-[11.5px] text-[#5A6A8A]">Updates in real-time as you edit</span>
             </div>
           </div>
-          <div className="overflow-auto max-h-[880px] rounded-xl border border-slate-200 shadow-inner bg-slate-100 p-4">
+          <div className="w-full max-w-full overflow-auto max-h-[880px] rounded-xl border border-slate-200 shadow-inner bg-slate-100 p-2 sm:p-4">
             <CVPreview />
           </div>
         </div>

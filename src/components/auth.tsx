@@ -144,10 +144,7 @@ function SocialBtn({
   onClick?: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="..."
-    >
+    <button onClick={onClick} className="...">
       {icon} {label}
     </button>
   );
@@ -297,9 +294,9 @@ export function StudentLogin({
         sub="Access your career portal, roadmap, and placement dashboard."
       />
 
-      <div className="px-8 py-7 space-y-5">
+      <div className="px-4 sm:px-6 md:px-8 py-5 sm:py-6 md:py-7 space-y-4 sm:space-y-5">
         {/* tab toggle */}
-        <div className="flex gap-1 p-1 bg-[#F4F6FB] rounded-xl">
+        <div className="flex w-full gap-1 p-1 bg-[#F4F6FB] rounded-xl">
           {(["password", "otp"] as const).map((t) => (
             <button
               key={t}
@@ -309,7 +306,7 @@ export function StudentLogin({
                 setOtpSent(false);
                 setOtp("");
               }}
-              className={`flex-1 py-2 text-[12.5px] font-semibold rounded-lg transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}
+              className={`flex-1 py-2.5 sm:py-2 text-[11.5px] sm:text-[12.5px] font-semibold rounded-lg transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}
             >
               {t === "password" ? "Email & Password" : "Mobile OTP"}
             </button>
@@ -335,15 +332,15 @@ export function StudentLogin({
               </div>
             </div>
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                 <FieldLabel label="Password" required />
-                <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
+                <button className="text-[10.5px] sm:text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
                   Forgot password?
                 </button>
               </div>
               <PwdInput value={pwd} onChange={setPwd} />
             </div>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <label className="flex items-center gap-2 sm:gap-2.5 cursor-pointer select-none">
               <button
                 onClick={() => setRemember(!remember)}
                 className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
@@ -351,7 +348,7 @@ export function StudentLogin({
               >
                 {remember && <Check size={10} className="text-white" />}
               </button>
-              <span className="text-[12.5px] text-[#5A6A8A]">
+              <span className="text-[11.5px] sm:text-[12.5px] text-[#5A6A8A]">
                 Remember me for 30 days
               </span>
             </label>
@@ -360,11 +357,11 @@ export function StudentLogin({
           <>
             <div>
               <FieldLabel label="Registered Mobile Number" required />
-              <div className="flex gap-2">
-                <div className="flex items-center gap-1 px-3 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F]">
+              <div className="flex w-full gap-2">
+                <div className="flex items-center gap-1 px-2.5 sm:px-3 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[12px] sm:text-[13px] text-[#0F1C3F] shrink-0">
                   🇮🇳 +91
                 </div>
-                <div className="relative flex-1">
+                <div className="relative flex-1 min-w-0">
                   <Phone
                     size={13}
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
@@ -383,7 +380,7 @@ export function StudentLogin({
             </div>
             {otpSent && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <FieldLabel label="Enter 6-digit OTP" required />
                   <button
                     onClick={() => {
@@ -396,7 +393,7 @@ export function StudentLogin({
                   </button>
                 </div>
                 <OTPRow value={otp} onChange={setOtp} />
-                <p className="text-center text-[11.5px] text-[#5A6A8A]">
+                <p className="text-center text-[10.5px] sm:text-[11.5px] text-[#5A6A8A]">
                   OTP sent to +91 {phone}
                 </p>
               </div>
@@ -406,7 +403,7 @@ export function StudentLogin({
         <button
           onClick={submit}
           disabled={loading}
-          className="w-full py-3 bg-[#1B3A6B] hover:bg-[#152d54] text-white rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
+          className="w-full py-3 sm:py-3 bg-[#1B3A6B] hover:bg-[#152d54] text-white rounded-xl text-[13px] sm:text-[14px] font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
         >
           {loading ? (
             <RefreshCw size={15} className="animate-spin" />
@@ -420,28 +417,41 @@ export function StudentLogin({
               : "Sign In"}
         </button>
         <Divider label="or continue with" />
-        {/* <div className="flex gap-3">
+        {/* <div className="flex flex-col sm:flex-row gap-3">
           <SocialBtn icon="🔵" label="Google" />
           <SocialBtn icon="💼" label="LinkedIn" />
         </div> */}
-        /{/* google auth */}
-        <div className="flex gap-3">
-          <SocialBtn
-            icon="🔵"
-            label="Google"
-            onClick={async () => {
-              const user = await loginWithGoogle();
+        <div className="flex gap-3 w-full">
+          <div className="flex-1 min-w-0 px-6 bg-gray">
+            <SocialBtn
+              icon="🔵"
+              label="Google"
+              onClick={async () => {
+                const user = await loginWithGoogle();
 
-              if (user) {
-                console.log(user);
+                if (user) {
+                  onSuccess();
+                }
+              }}
+            />
+          </div>
 
-                // Existing success callback
-                onSuccess();
-              }
-            }}
-          />
+          <div className="flex-1 min-w-0">
+            <SocialBtn
+              icon="📧"
+              label="Email"
+              onClick={async () => {
+                const user = await loginWithGoogle();
+
+                if (user) {
+                  onSuccess();
+                }
+              }}
+            />
+          </div>
         </div>
-        <p className="text-center text-[12.5px] text-[#5A6A8A]">
+
+        <p className="text-center text-[11.5px] sm:text-[12.5px] text-[#5A6A8A] leading-relaxed">
           New to EduConnect?{" "}
           <button
             onClick={onRegister}
@@ -452,10 +462,10 @@ export function StudentLogin({
         </p>
       </div>
 
-      <div className="px-8 pb-6">
+      <div className="px-2 sm:px-6 md:px-8 pb-5 sm:pb-6">
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-[12px] text-[#9AA5BE] hover:text-[#5A6A8A] transition-colors"
+          className="flex items-center  gap-1.5 text-[11px] sm:text-[12px] text-[#9AA5BE] hover:text-[#5A6A8A] transition-colors"
         >
           <ArrowLeft size={13} />
           Back to Home

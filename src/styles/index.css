@@ -1,3 +1,43 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+@keyframes testimonialsSlide {
+  0% {
+    transform: translateX(100%);
+  }
+
+  10% {
+    transform: translateX(0);
+  }
+
+  30% {
+    transform: translateX(0);
+  }
+
+  40% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+@media (max-width: 767px) {
+  .animate-testimonials {
+    display: flex;
+    width: 100%;
+    animation: testimonialsSlide 5s infinite;
+  }
+
+  .animate-testimonials > div {
+    flex: 0 0 100%;
+  }
+}
+
+@media (min-width: 768px) {
+  .animate-testimonials {
+    animation: none;
+  }
+}
