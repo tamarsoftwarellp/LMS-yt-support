@@ -237,56 +237,24 @@ export function StudentLogin({
   onRegister: () => void;
   onSuccess: () => void;
 }) {
-  const [tab, setTab] = useState<"password" | "otp">("password");
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(false);
 
-  const sendOtp = () => {
-    if (!phone.trim()) {
-      setError("Please enter your registered mobile number.");
+  const submit = () => {
+    setError("");
+    if (!email || !pwd) {
+      setError("Please fill in all required fields.");
       return;
     }
-    setError("");
+
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      setOtpSent(true);
-    }, 1200);
-  };
-
-  const submit = () => {
-    setError("");
-    if (tab === "password") {
-      if (!email || !pwd) {
-        setError("Please fill in all required fields.");
-        return;
-      }
-      setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
-        onSuccess();
-      }, 1600);
-    } else {
-      if (!otpSent) {
-        sendOtp();
-        return;
-      }
-      if (otp.length < 6) {
-        setError("Enter the 6-digit OTP sent to your mobile.");
-        return;
-      }
-      setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
-        onSuccess();
-      }, 1400);
-    }
+      onSuccess();
+    }, 1600);
   };
 
   return (
@@ -298,111 +266,47 @@ export function StudentLogin({
       />
 
       <div className="px-8 py-7 space-y-5">
-        {/* tab toggle */}
-        <div className="flex gap-1 p-1 bg-[#F4F6FB] rounded-xl">
-          {(["password", "otp"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTab(t);
-                setError("");
-                setOtpSent(false);
-                setOtp("");
-              }}
-              className={`flex-1 py-2 text-[12.5px] font-semibold rounded-lg transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}
-            >
-              {t === "password" ? "Email & Password" : "Mobile OTP"}
-            </button>
-          ))}
-        </div>
         {error && <ErrorMsg msg={error} />}
-        {tab === "password" ? (
-          <>
-            <div>
-              <FieldLabel label="Email Address" required />
-              <div className="relative">
-                <Mail
-                  size={13}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-                />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@college.edu"
-                  className={`${inputCls} pl-9`}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <FieldLabel label="Password" required />
-                <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
-                  Forgot password?
-                </button>
-              </div>
-              <PwdInput value={pwd} onChange={setPwd} />
-            </div>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <button
-                onClick={() => setRemember(!remember)}
-                className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
-                style={{ width: "18px", height: "18px" }}
-              >
-                {remember && <Check size={10} className="text-white" />}
-              </button>
-              <span className="text-[12.5px] text-[#5A6A8A]">
-                Remember me for 30 days
-              </span>
-            </label>
-          </>
-        ) : (
-          <>
-            <div>
-              <FieldLabel label="Registered Mobile Number" required />
-              <div className="flex gap-2">
-                <div className="flex items-center gap-1 px-3 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F]">
-                  🇮🇳 +91
-                </div>
-                <div className="relative flex-1">
-                  <Phone
-                    size={13}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-                  />
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) =>
-                      setPhone(e.target.value.replace(/\D/, "").slice(0, 10))
-                    }
-                    placeholder="10-digit mobile number"
-                    className={`${inputCls} pl-9`}
-                  />
-                </div>
-              </div>
-            </div>
-            {otpSent && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <FieldLabel label="Enter 6-digit OTP" required />
-                  <button
-                    onClick={() => {
-                      setOtp("");
-                      setOtpSent(false);
-                    }}
-                    className="text-[11.5px] text-[#1B3A6B] hover:underline"
-                  >
-                    Resend
-                  </button>
-                </div>
-                <OTPRow value={otp} onChange={setOtp} />
-                <p className="text-center text-[11.5px] text-[#5A6A8A]">
-                  OTP sent to +91 {phone}
-                </p>
-              </div>
-            )}
-          </>
-        )}
+
+        <div>
+          <FieldLabel label="Email Address" required />
+          <div className="relative">
+            <Mail
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
+            />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@college.edu"
+              className={`${inputCls} pl-9`}
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <FieldLabel label="Password" required />
+            <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
+              Forgot password?
+            </button>
+          </div>
+          <PwdInput value={pwd} onChange={setPwd} />
+        </div>
+
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <button
+            onClick={() => setRemember(!remember)}
+            className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
+            style={{ width: "18px", height: "18px" }}
+          >
+            {remember && <Check size={10} className="text-white" />}
+          </button>
+          <span className="text-[12.5px] text-[#5A6A8A]">
+            Remember me for 30 days
+          </span>
+        </label>
         <button
           onClick={submit}
           disabled={loading}
@@ -413,11 +317,7 @@ export function StudentLogin({
           ) : (
             <LogIn size={15} />
           )}
-          {loading
-            ? "Signing in…"
-            : tab === "otp" && !otpSent
-              ? "Send OTP"
-              : "Sign In"}
+          {loading ? "Signing in…" : "Sign In"}
         </button>
         <Divider label="or continue with" />
         {/* <div className="flex gap-3">
@@ -732,11 +632,9 @@ export function StudentRegister({
   const [pwd, setPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
 
-  // step 2 — verify
+  // step 2 — verify email
   const [emailOtp, setEmailOtp] = useState("");
-  const [phoneOtp, setPhoneOtp] = useState("");
   const [emailVerified, setEmailVerified] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
 
   // step 3 — college
   const [college, setCollege] = useState("");
@@ -768,8 +666,8 @@ export function StudentRegister({
         setStep("verify");
       }, 1000);
     } else if (step === "verify") {
-      if (!emailVerified || !phoneVerified) {
-        setError("Please verify both email and mobile.");
+      if (!emailVerified) {
+        setError("Please verify your email.");
         return;
       }
       setStep("college");
@@ -792,9 +690,8 @@ export function StudentRegister({
     }
   };
 
-  const verifyCode = (which: "email" | "phone") => {
-    if (which === "email" && emailOtp.length === 6) setEmailVerified(true);
-    if (which === "phone" && phoneOtp.length === 6) setPhoneVerified(true);
+  const verifyCode = () => {
+    if (emailOtp.length === 6) setEmailVerified(true);
   };
 
   return (
@@ -921,11 +818,6 @@ export function StudentRegister({
               )}
             </div>
 
-            <Divider label="or sign up with" />
-            <div className="flex gap-3">
-              <SocialBtn icon="🔵" label="Google" />
-              <SocialBtn icon="💼" label="LinkedIn" />
-            </div>
           </>
         )}
 
@@ -962,7 +854,7 @@ export function StudentRegister({
                   <OTPRow value={emailOtp} onChange={setEmailOtp} />
                   <div className="flex items-center justify-between">
                     <button
-                      onClick={() => verifyCode("email")}
+                      onClick={verifyCode}
                       className="px-4 py-1.5 bg-[#1B3A6B] text-white text-[12px] font-semibold rounded-lg hover:bg-[#152d54] transition-colors"
                     >
                       Verify Code
@@ -975,50 +867,6 @@ export function StudentRegister({
               )}
             </div>
 
-            {/* phone otp */}
-            <div
-              className={`p-4 rounded-xl border-2 transition-all ${phoneVerified ? "border-emerald-400 bg-emerald-50" : "border-[rgba(27,58,107,0.12)] bg-white"}`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Phone
-                    size={14}
-                    className={
-                      phoneVerified ? "text-emerald-600" : "text-[#1B3A6B]"
-                    }
-                  />
-                  <span className="text-[13px] font-semibold text-[#0F1C3F]">
-                    Verify Mobile
-                  </span>
-                </div>
-                {phoneVerified ? (
-                  <span className="flex items-center gap-1 text-[11.5px] font-semibold text-emerald-600">
-                    <Check size={12} />
-                    Verified
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-[#5A6A8A]">
-                    +91 {phone}
-                  </span>
-                )}
-              </div>
-              {!phoneVerified && (
-                <div className="space-y-2">
-                  <OTPRow value={phoneOtp} onChange={setPhoneOtp} />
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={() => verifyCode("phone")}
-                      className="px-4 py-1.5 bg-[#1B3A6B] text-white text-[12px] font-semibold rounded-lg hover:bg-[#152d54] transition-colors"
-                    >
-                      Verify Code
-                    </button>
-                    <button className="text-[11.5px] text-[#1B3A6B] hover:underline">
-                      Resend
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         )}
 

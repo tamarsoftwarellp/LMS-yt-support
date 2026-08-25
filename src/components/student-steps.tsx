@@ -60,142 +60,142 @@ export function ProgressBar({ value, color = "#1B3A6B", height = 6 }: { value: n
 /* ════════════════════════════════════════════════════════
    SS1 — STUDENT ONBOARDING
 ════════════════════════════════════════════════════════ */
-export function SS1() {
-  const [tab, setTab] = useState<"email" | "social">("email");
-  const [showPass, setShowPass] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
-  const [mobileSent, setMobileSent] = useState(false);
-  const [emailVerified, setEmailVerified] = useState(false);
-  const [mobileVerified, setMobileVerified] = useState(false);
-  const [emailOtp, setEmailOtp] = useState("");
-  const [mobileOtp, setMobileOtp] = useState("");
-  const [countdown, setCountdown] = useState(0);
+// export function SS1() {
+//   const [tab, setTab] = useState<"email" | "social">("email");
+//   const [showPass, setShowPass] = useState(false);
+//   const [emailSent, setEmailSent] = useState(false);
+//   const [mobileSent, setMobileSent] = useState(false);
+//   const [emailVerified, setEmailVerified] = useState(false);
+//   const [mobileVerified, setMobileVerified] = useState(false);
+//   const [emailOtp, setEmailOtp] = useState("");
+//   const [mobileOtp, setMobileOtp] = useState("");
+//   const [countdown, setCountdown] = useState(0);
 
-  const startCountdown = useCallback(() => {
-    setCountdown(30);
-    const t = setInterval(() => setCountdown(p => { if (p <= 1) { clearInterval(t); return 0; } return p - 1; }), 1000);
-  }, []);
+//   const startCountdown = useCallback(() => {
+//     setCountdown(30);
+//     const t = setInterval(() => setCountdown(p => { if (p <= 1) { clearInterval(t); return 0; } return p - 1; }), 1000);
+//   }, []);
 
-  const bothVerified = emailVerified && mobileVerified;
+//   const bothVerified = emailVerified && mobileVerified;
 
-  if (bothVerified) return (
-    <div className="flex flex-col items-center py-10 text-center">
-      <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
-        <CheckCircle2 size={38} className="text-emerald-600" />
-      </div>
-      <h2 className="text-[22px] text-[#0F1C3F] mb-2" style={{ fontFamily: "var(--font-serif)" }}>Account Created!</h2>
-      <p className="text-[13.5px] text-[#5A6A8A] max-w-sm mb-6">Your student account has been set up. Continue to build your profile and get your personalized career roadmap.</p>
-      {/* <div className="flex gap-3">
-        {["Email ✓", "Mobile ✓"].map(b => (
-          <span key={b} className="text-[12px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">{b}</span>
-        ))}
-      </div> */}
-    </div>
-  );
+//   if (bothVerified) return (
+//     <div className="flex flex-col items-center py-10 text-center">
+//       <div className="w-20 h-20 rounded-full bg-emerald-100 flex items-center justify-center mb-5">
+//         <CheckCircle2 size={38} className="text-emerald-600" />
+//       </div>
+//       <h2 className="text-[22px] text-[#0F1C3F] mb-2" style={{ fontFamily: "var(--font-serif)" }}>Account Created!</h2>
+//       <p className="text-[13.5px] text-[#5A6A8A] max-w-sm mb-6">Your student account has been set up. Continue to build your profile and get your personalized career roadmap.</p>
+//       {/* <div className="flex gap-3">
+//         {["Email ✓", "Mobile ✓"].map(b => (
+//           <span key={b} className="text-[12px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">{b}</span>
+//         ))}
+//       </div> */}
+//     </div>
+//   );
 
-  return (
-    <div className="space-y-7">
-      <SectionTitle num="2.1" title="Student Registration" sub="Create your account to get started" />
+//   return (
+//     <div className="space-y-7">
+//       <SectionTitle num="2.1" title="Student Registration" sub="Create your account to get started" />
 
-      {/* Tab switcher */}
-      <div className="flex gap-1 p-1 bg-[#EFF2FA] rounded-xl w-fit">
-        {(["email", "social"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-5 py-2 text-[13px] font-medium rounded-[10px] transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}>
-            {t === "email" ? "Email / Mobile" : "Social Login"}
-          </button>
-        ))}
-      </div>
+//       {/* Tab switcher */}
+//       <div className="flex gap-1 p-1 bg-[#EFF2FA] rounded-xl w-fit">
+//         {(["email", "social"] as const).map(t => (
+//           <button key={t} onClick={() => setTab(t)}
+//             className={`px-5 py-2 text-[13px] font-medium rounded-[10px] transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}>
+//             {t === "email" ? "Email / Mobile" : "Social Login"}
+//           </button>
+//         ))}
+//       </div>
 
-      {tab === "social" ? (
-        <div className="max-w-sm space-y-3">
-          <button className="w-full flex items-center gap-3 px-5 py-3.5 bg-white border-2 border-[--border] rounded-xl hover:border-slate-300 hover:shadow-sm transition-all font-medium text-[14px] text-[#0F1C3F]">
-            <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/><path fill="#34A853" d="M6.3 14.7l7 5.1C15.1 15.2 19.2 12 24 12c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 16.3 2 9.6 7.4 6.3 14.7z"/><path fill="#FBBC05" d="M24 46c5.5 0 10.5-1.9 14.3-5l-6.6-5.4C29.8 37.3 27 38 24 38c-6.1 0-11.3-4.1-13.1-9.7l-7 5.4C7.7 40.9 15.3 46 24 46z"/><path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-.8 2.5-2.5 4.6-4.7 6.1l6.6 5.4C41.5 36.5 45 30.7 45 24c0-1.3-.2-2.7-.5-4z"/></svg>
-            Continue with Google
-          </button>
-          <button className="w-full flex items-center gap-3 px-5 py-3.5 bg-[#0A66C2] border-2 border-[#0A66C2] rounded-xl hover:bg-[#0856a8] transition-all font-medium text-[14px] text-white">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-            Continue with LinkedIn
-          </button>
-          <div className="flex items-center gap-3 py-1">
-            <div className="flex-1 h-px bg-[--border]" />
-            <span className="text-[12px] text-[#9AA5BE]">or register with email</span>
-            <div className="flex-1 h-px bg-[--border]" />
-          </div>
-          <button onClick={() => setTab("email")} className="w-full px-5 py-2.5 border border-[--border] rounded-xl text-[13px] font-medium text-[#5A6A8A] hover:bg-[#F4F7FC] transition-colors">
-            Register with Email / Mobile
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-5 max-w-2xl">
-          <Field label="Email Address" required><Input icon={Mail} type="email" placeholder="student@college.edu.in" /></Field>
-          {/* <Field label="Mobile Number" required><Input icon={Phone} type="tel" placeholder="+91 98765 43210" /></Field> */}
-          <Field label="Password" required>
-            <div className="relative">
-              <Input icon={Shield} type={showPass ? "text" : "password"} placeholder="Min 8 characters" />
-              <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]">
-                {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </Field>
-          <Field label="Confirm Password" required><Input icon={Shield} type="password" placeholder="Repeat password" /></Field>
-          <div className="col-span-2"><Field label="College (from registered institutions)" required>
-            <Select icon={Building2}><option value="">Select your college</option><option>Rajiv Gandhi Institute of Technology</option><option>Mumbai University</option><option>IIT Bombay</option></Select>
-          </Field></div>
-        </div>
-      )}
+//       {tab === "social" ? (
+//         <div className="max-w-sm space-y-3">
+//           <button className="w-full flex items-center gap-3 px-5 py-3.5 bg-white border-2 border-[--border] rounded-xl hover:border-slate-300 hover:shadow-sm transition-all font-medium text-[14px] text-[#0F1C3F]">
+//             <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/><path fill="#34A853" d="M6.3 14.7l7 5.1C15.1 15.2 19.2 12 24 12c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 16.3 2 9.6 7.4 6.3 14.7z"/><path fill="#FBBC05" d="M24 46c5.5 0 10.5-1.9 14.3-5l-6.6-5.4C29.8 37.3 27 38 24 38c-6.1 0-11.3-4.1-13.1-9.7l-7 5.4C7.7 40.9 15.3 46 24 46z"/><path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-.8 2.5-2.5 4.6-4.7 6.1l6.6 5.4C41.5 36.5 45 30.7 45 24c0-1.3-.2-2.7-.5-4z"/></svg>
+//             Continue with Google
+//           </button>
+//           <button className="w-full flex items-center gap-3 px-5 py-3.5 bg-[#0A66C2] border-2 border-[#0A66C2] rounded-xl hover:bg-[#0856a8] transition-all font-medium text-[14px] text-white">
+//             <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+//             Continue with LinkedIn
+//           </button>
+//           <div className="flex items-center gap-3 py-1">
+//             <div className="flex-1 h-px bg-[--border]" />
+//             <span className="text-[12px] text-[#9AA5BE]">or register with email</span>
+//             <div className="flex-1 h-px bg-[--border]" />
+//           </div>
+//           <button onClick={() => setTab("email")} className="w-full px-5 py-2.5 border border-[--border] rounded-xl text-[13px] font-medium text-[#5A6A8A] hover:bg-[#F4F7FC] transition-colors">
+//             Register with Email / Mobile
+//           </button>
+//         </div>
+//       ) : (
+//         <div className="grid grid-cols-2 gap-5 max-w-2xl">
+//           <Field label="Email Address" required><Input icon={Mail} type="email" placeholder="student@college.edu.in" /></Field>
+//           {/* <Field label="Mobile Number" required><Input icon={Phone} type="tel" placeholder="+91 98765 43210" /></Field> */}
+//           <Field label="Password" required>
+//             <div className="relative">
+//               <Input icon={Shield} type={showPass ? "text" : "password"} placeholder="Min 8 characters" />
+//               <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]">
+//                 {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+//               </button>
+//             </div>
+//           </Field>
+//           <Field label="Confirm Password" required><Input icon={Shield} type="password" placeholder="Repeat password" /></Field>
+//           <div className="col-span-2"><Field label="College (from registered institutions)" required>
+//             <Select icon={Building2}><option value="">Select your college</option><option>Rajiv Gandhi Institute of Technology</option><option>Mumbai University</option><option>IIT Bombay</option></Select>
+//           </Field></div>
+//         </div>
+//       )}
 
-      {/* OTP Verification */}
-      <div>
-        <SectionTitle num="2.1b" title="Verify Your Contacts" sub="Confirm your email and mobile to activate your account" />
-        <div className="space-y-4">
-          {[
-            { type: "email" as const, label: "Email Verification", icon: Mail, contact: "student@college.edu.in", sent: emailSent, setSent: setEmailSent, verified: emailVerified, setVerified: setEmailVerified, otp: emailOtp, setOtp: setEmailOtp },
-            { type: "mobile" as const, label: "Mobile Verification", icon: Phone, contact: "+91 98765 43210", sent: mobileSent, setSent: setMobileSent, verified: mobileVerified, setVerified: setMobileVerified, otp: mobileOtp, setOtp: setMobileOtp },
-          ].map(v => (
-            <div key={v.type} className={`p-5 rounded-xl border-2 transition-all ${v.verified ? "border-emerald-200 bg-emerald-50/30" : "border-[--border] bg-white"}`}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${v.verified ? "bg-emerald-100" : "bg-[#E8ECF5]"}`}>
-                    {v.verified ? <CheckCircle2 size={17} className="text-emerald-600" /> : <v.icon size={16} className="text-[#1B3A6B]" />}
-                  </div>
-                  <div>
-                    <p className="text-[13px] font-medium text-[#0F1C3F]">{v.label}</p>
-                    <p className="text-[11.5px] text-[#5A6A8A]" style={{ fontFamily: "var(--font-mono)" }}>{v.contact}</p>
-                  </div>
-                </div>
-                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${v.verified ? "text-emerald-700 bg-emerald-100" : "text-amber-700 bg-amber-100"}`}>
-                  {v.verified ? "Verified" : "Pending"}
-                </span>
-              </div>
-              {!v.verified && (!v.sent ? (
-                <button onClick={() => { v.setSent(true); if (v.type === "mobile") startCountdown(); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] transition-colors font-medium">
-                  <v.icon size={13} /> Send OTP
-                </button>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-[12.5px] text-[#5A6A8A]">Enter the 6-digit OTP sent to <strong className="text-[#0F1C3F]">{v.contact}</strong></p>
-                  <OTPInput value={v.otp} onChange={v.setOtp} />
-                  <div className="flex items-center gap-4">
-                    <button onClick={() => v.otp.length === 6 && v.setVerified(true)}
-                      className="px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] transition-colors font-medium">
-                      Verify OTP
-                    </button>
-                    <button disabled={countdown > 0} onClick={startCountdown}
-                      className="text-[12.5px] text-[#1B3A6B] hover:underline disabled:opacity-40 disabled:no-underline">
-                      {countdown > 0 ? `Resend in ${countdown}s` : "Resend OTP"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+//       {/* OTP Verification */}
+//       <div>
+//         <SectionTitle num="2.1b" title="Verify Your Contacts" sub="Confirm your email and mobile to activate your account" />
+//         <div className="space-y-4">
+//           {[
+//             { type: "email" as const, label: "Email Verification", icon: Mail, contact: "student@college.edu.in", sent: emailSent, setSent: setEmailSent, verified: emailVerified, setVerified: setEmailVerified, otp: emailOtp, setOtp: setEmailOtp },
+//             { type: "mobile" as const, label: "Mobile Verification", icon: Phone, contact: "+91 98765 43210", sent: mobileSent, setSent: setMobileSent, verified: mobileVerified, setVerified: setMobileVerified, otp: mobileOtp, setOtp: setMobileOtp },
+//           ].map(v => (
+//             <div key={v.type} className={`p-5 rounded-xl border-2 transition-all ${v.verified ? "border-emerald-200 bg-emerald-50/30" : "border-[--border] bg-white"}`}>
+//               <div className="flex items-center justify-between mb-3">
+//                 <div className="flex items-center gap-3">
+//                   <div className={`w-9 h-9 rounded-full flex items-center justify-center ${v.verified ? "bg-emerald-100" : "bg-[#E8ECF5]"}`}>
+//                     {v.verified ? <CheckCircle2 size={17} className="text-emerald-600" /> : <v.icon size={16} className="text-[#1B3A6B]" />}
+//                   </div>
+//                   <div>
+//                     <p className="text-[13px] font-medium text-[#0F1C3F]">{v.label}</p>
+//                     <p className="text-[11.5px] text-[#5A6A8A]" style={{ fontFamily: "var(--font-mono)" }}>{v.contact}</p>
+//                   </div>
+//                 </div>
+//                 <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full ${v.verified ? "text-emerald-700 bg-emerald-100" : "text-amber-700 bg-amber-100"}`}>
+//                   {v.verified ? "Verified" : "Pending"}
+//                 </span>
+//               </div>
+//               {!v.verified && (!v.sent ? (
+//                 <button onClick={() => { v.setSent(true); if (v.type === "mobile") startCountdown(); }}
+//                   className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] transition-colors font-medium">
+//                   <v.icon size={13} /> Send OTP
+//                 </button>
+//               ) : (
+//                 <div className="space-y-3">
+//                   <p className="text-[12.5px] text-[#5A6A8A]">Enter the 6-digit OTP sent to <strong className="text-[#0F1C3F]">{v.contact}</strong></p>
+//                   <OTPInput value={v.otp} onChange={v.setOtp} />
+//                   <div className="flex items-center gap-4">
+//                     <button onClick={() => v.otp.length === 6 && v.setVerified(true)}
+//                       className="px-4 py-2 bg-[#1B3A6B] text-white text-[13px] rounded-[10px] hover:bg-[#122748] transition-colors font-medium">
+//                       Verify OTP
+//                     </button>
+//                     <button disabled={countdown > 0} onClick={startCountdown}
+//                       className="text-[12.5px] text-[#1B3A6B] hover:underline disabled:opacity-40 disabled:no-underline">
+//                       {countdown > 0 ? `Resend in ${countdown}s` : "Resend OTP"}
+//                     </button>
+//                   </div>
+//                 </div>
+//               ))}
+//             </div>
+//           ))}
+//         </div>
+//       </div>
+//     </div>
+//   );
+// }
 
 /* ════════════════════════════════════════════════════════
    SS2 — STUDENT PROFILE
