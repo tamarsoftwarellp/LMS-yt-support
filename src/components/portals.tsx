@@ -56,43 +56,43 @@ export const STUDENT_STEPS = [
     desc: "Personal, education & skills",
   },
 
-  {
-    id: 2,
-    label: "Skill Verification",
-    icon: ShieldCheck,
-    desc: "Verify skills for your CV",
-  },
+  // {
+  //   id: 2,
+  //   label: "Skill Verification",
+  //   icon: ShieldCheck,
+  //   desc: "Verify skills for your CV",
+  // },
 
   {
-    id: 3,
+    id: 2,
     label: "AI Career Counselling",
     icon: Brain,
     desc: "Assessment & career fit",
   },
 
   {
-    id: 4,
+    id: 3,
     label: "Career Goal Setup",
     icon: Target,
     desc: "Role, domain & companies",
   },
 
   {
-    id: 5,
+    id: 4,
     label: "AI Roadmap Generator",
     icon: Route,
     desc: "4-phase learning plan",
   },
 
   {
-    id: 6,
+    id: 5,
     label: "Dynamic CV",
     icon: FileText,
     desc: "ATS-optimised CV export",
   },
 
   {
-    id: 7,
+    id: 6,
     label: "Student Dashboard",
     icon: LayoutDashboard,
     desc: "Insights & notifications",
@@ -125,10 +125,10 @@ export const STUDENT_PHASES = [
     range: [5, 6],
   },
 
-  {
-    label: "CV & Dashboard",
-    range: [7],
-  },
+  // {
+  //   label: "CV & Dashboard",
+  //   range: [7],
+  // },
 ];
 
 
@@ -159,12 +159,12 @@ export function StudentPortal({
    */
   const stepComponents: Record<number, React.ReactNode> = {
     1: <SS2 />,
-    2: <SSSkillVerify />,
-    3: <SS3 />,
-    4: <SS4 />,
-    5: <SS5 onLMS={onLMS} />,
-    6: <SSCVGenerator />,
-    7: <SS6 />,
+    // 2: <SSSkillVerify />,
+    2: <SS3 />,
+    3: <SS4 />,
+    4: <SS5 onLMS={onLMS} />,
+    5: <SSCVGenerator />,
+    6: <SS6 />,
   };
 
   /*
