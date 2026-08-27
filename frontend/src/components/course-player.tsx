@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowLeft, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX,
   CheckCircle2, Lock, ChevronDown, Check, Clock, ChevronLeft, ChevronRight,
@@ -624,7 +625,7 @@ function AssignmentView({ lesson }: { lesson: Lesson }) {
 }
 
 // ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
-export function CoursePlayer({ course, onBack }: { course: CourseData; onBack: () => void }) {
+export function CoursePlayer({ course, onBack, onLessonComplete, renderQuiz }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
   const allLessons = course.sections.flatMap(s => s.lessons);
   const firstIncomplete = allLessons.find(l => !l.completed && !l.locked) ?? allLessons[0];
   const [activeLesson, setActiveLesson] = useState<Lesson>(firstIncomplete);
@@ -643,6 +644,7 @@ export function CoursePlayer({ course, onBack }: { course: CourseData; onBack: (
   const markDone = () => {
     if (!completedIds.includes(activeLesson.id)) {
       setCompletedIds(ids => [...ids, activeLesson.id]);
+      if (activeLesson.type !== "quiz") void onLessonComplete?.(activeLesson.id);
     }
     if (curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
   };
@@ -768,7 +770,7 @@ export function CoursePlayer({ course, onBack }: { course: CourseData; onBack: (
             {/* lesson content */}
             {activeLesson.type === "video" && <VideoPlayer lesson={activeLesson} color={course.color} onEnded={markDone} />}
             {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
-            {activeLesson.type === "quiz" && <QuizView onComplete={markDone} />}
+            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, markDone) : <QuizView onComplete={markDone} />)}
             {activeLesson.type === "assignment" && <AssignmentView lesson={activeLesson} />}
 
             {/* mark complete */}

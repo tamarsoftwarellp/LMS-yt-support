@@ -1,5 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loginWithGoogle } from "../auth/google";
+import {
+  getColleges,
+  getPrograms,
+  registerStudent,
+} from "../api/student-registration";
+import type { MasterOption } from "../api/student-registration";
+import { loginStudent } from "../api/student-auth";
+import { loginAdmin } from "../api/admin-lms";
 import {
   Mail,
   Lock,
@@ -237,24 +245,60 @@ export function StudentLogin({
   onRegister: () => void;
   onSuccess: () => void;
 }) {
+  const [tab, setTab] = useState<"password" | "otp">("password");
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
+  const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(false);
 
-  const submit = () => {
-    setError("");
-    if (!email || !pwd) {
-      setError("Please fill in all required fields.");
+  const sendOtp = () => {
+    if (!phone.trim()) {
+      setError("Please enter your registered mobile number.");
       return;
     }
-
+    setError("");
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      onSuccess();
-    }, 1600);
+      setOtpSent(true);
+    }, 1200);
+  };
+
+  const submit = async () => {
+    setError("");
+    if (tab === "password") {
+      if (!email || !pwd) {
+        setError("Please fill in all required fields.");
+        return;
+      }
+      setLoading(true);
+      try {
+        await loginStudent(email, pwd);
+        onSuccess();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to sign in.");
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      if (!otpSent) {
+        sendOtp();
+        return;
+      }
+      if (otp.length < 6) {
+        setError("Enter the 6-digit OTP sent to your mobile.");
+        return;
+      }
+      setLoading(true);
+      setTimeout(() => {
+        setLoading(false);
+        onSuccess();
+      }, 1400);
+    }
   };
 
   return (
@@ -266,47 +310,111 @@ export function StudentLogin({
       />
 
       <div className="px-8 py-7 space-y-5">
-        {error && <ErrorMsg msg={error} />}
-
-        <div>
-          <FieldLabel label="Email Address" required />
-          <div className="relative">
-            <Mail
-              size={13}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-            />
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@college.edu"
-              className={`${inputCls} pl-9`}
-            />
-          </div>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <FieldLabel label="Password" required />
-            <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
-              Forgot password?
+        {/* tab toggle */}
+        <div className="flex gap-1 p-1 bg-[#F4F6FB] rounded-xl">
+          {(["password"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => {
+                setTab(t);
+                setError("");
+                setOtpSent(false);
+                setOtp("");
+              }}
+              className={`flex-1 py-2 text-[12.5px] font-semibold rounded-lg transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}
+            >
+              {t === "password" ? "Email & Password" : "Mobile OTP"}
             </button>
-          </div>
-          <PwdInput value={pwd} onChange={setPwd} />
+          ))}
         </div>
-
-        <label className="flex items-center gap-2.5 cursor-pointer select-none">
-          <button
-            onClick={() => setRemember(!remember)}
-            className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
-            style={{ width: "18px", height: "18px" }}
-          >
-            {remember && <Check size={10} className="text-white" />}
-          </button>
-          <span className="text-[12.5px] text-[#5A6A8A]">
-            Remember me for 30 days
-          </span>
-        </label>
+        {error && <ErrorMsg msg={error} />}
+        {tab === "password" ? (
+          <>
+            <div>
+              <FieldLabel label="Email Address" required />
+              <div className="relative">
+                <Mail
+                  size={13}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
+                />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@college.edu"
+                  className={`${inputCls} pl-9`}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <FieldLabel label="Password" required />
+                <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
+                  Forgot password?
+                </button>
+              </div>
+              <PwdInput value={pwd} onChange={setPwd} />
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <button
+                onClick={() => setRemember(!remember)}
+                className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
+                style={{ width: "18px", height: "18px" }}
+              >
+                {remember && <Check size={10} className="text-white" />}
+              </button>
+              <span className="text-[12.5px] text-[#5A6A8A]">
+                Remember me for 30 days
+              </span>
+            </label>
+          </>
+        ) : (
+          <>
+            <div>
+              <FieldLabel label="Registered Mobile Number" required />
+              <div className="flex gap-2">
+                <div className="flex items-center gap-1 px-3 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F]">
+                  🇮🇳 +91
+                </div>
+                <div className="relative flex-1">
+                  <Phone
+                    size={13}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
+                  />
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) =>
+                      setPhone(e.target.value.replace(/\D/, "").slice(0, 10))
+                    }
+                    placeholder="10-digit mobile number"
+                    className={`${inputCls} pl-9`}
+                  />
+                </div>
+              </div>
+            </div>
+            {otpSent && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <FieldLabel label="Enter 6-digit OTP" required />
+                  <button
+                    onClick={() => {
+                      setOtp("");
+                      setOtpSent(false);
+                    }}
+                    className="text-[11.5px] text-[#1B3A6B] hover:underline"
+                  >
+                    Resend
+                  </button>
+                </div>
+                <OTPRow value={otp} onChange={setOtp} />
+                <p className="text-center text-[11.5px] text-[#5A6A8A]">
+                  OTP sent to +91 {phone}
+                </p>
+              </div>
+            )}
+          </>
+        )}
         <button
           onClick={submit}
           disabled={loading}
@@ -317,15 +425,18 @@ export function StudentLogin({
           ) : (
             <LogIn size={15} />
           )}
-          {loading ? "Signing in…" : "Sign In"}
+          {loading
+            ? "Signing in…"
+            : tab === "otp" && !otpSent
+              ? "Send OTP"
+              : "Sign In"}
         </button>
-        <Divider label="or continue with" />
+        {/* Social sign-in stays disabled until it is linked to a backend student account. */}
         {/* <div className="flex gap-3">
           <SocialBtn icon="🔵" label="Google" />
           <SocialBtn icon="💼" label="LinkedIn" />
         </div> */}
-        /{/* google auth */}
-        <div className="flex gap-3">
+        <div className="hidden">
           <SocialBtn
             icon="🔵"
             label="Google"
@@ -367,13 +478,6 @@ export function StudentLogin({
 
 // ─── ADMIN LOGIN ─────────────────────────────────────────────────────────────
 
-const DEMO_ROLES = [
-  "Platform Super Admin",
-  "College Admin",
-  "Placement Officer",
-  "Faculty Coordinator",
-];
-
 export function AdminLogin({
   onBack,
   onSuccess,
@@ -383,31 +487,24 @@ export function AdminLogin({
 }) {
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
-  const [role, setRole] = useState("");
-  const [twoFA, setTwoFA] = useState(false);
-  const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const submit = () => {
+  const submit = async () => {
     setError("");
-    if (!email || !pwd || !role) {
-      setError("All fields are required.");
-      return;
-    }
-    if (twoFA && otp.length < 6) {
-      setError("Enter the 6-digit authenticator code.");
+    if (!email.trim() || !pwd.trim()) {
+      setError("Email and password are required.");
       return;
     }
     setLoading(true);
-    setTimeout(() => {
+    try {
+      await loginAdmin(email, pwd);
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in.");
+    } finally {
       setLoading(false);
-      if (!twoFA) {
-        setTwoFA(true);
-      } else {
-        onSuccess();
-      }
-    }, 1500);
+    }
   };
 
   return (
@@ -416,174 +513,60 @@ export function AdminLogin({
         icon={ShieldCheck}
         badge="Admin"
         title="Admin Sign In"
-        sub="Secure access for institution administrators, placement officers, and faculty."
+        sub="Secure access for course managers and curriculum builders."
       />
 
-      {/* security notice */}
       <div className="mx-8 mt-6 flex items-start gap-2.5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-xl">
         <ShieldCheck size={14} className="text-amber-600 mt-0.5 shrink-0" />
         <p className="text-[12px] text-amber-700 leading-relaxed">
-          This portal is for authorised personnel only. All login attempts are
-          logged and monitored.
+          Use your admin email and password to open the LMS management portal.
         </p>
       </div>
 
       <div className="px-8 py-7 space-y-5">
         {error && <ErrorMsg msg={error} />}
 
-        {!twoFA ? (
-          <>
-            <div>
-              <FieldLabel label="Admin Role" required />
-              <div className="relative">
-                <ShieldCheck
-                  size={13}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"
-                />
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
-                >
-                  <option value="">Select your role</option>
-                  {DEMO_ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={13}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"
-                />
-              </div>
-            </div>
-
-            {role === "College Admin" ||
-            role === "Placement Officer" ||
-            role === "Faculty Coordinator" ? (
-              <div>
-                <FieldLabel label="Institution" required />
-                <div className="relative">
-                  <Building2
-                    size={13}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"
-                  />
-                  <select
-                    className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
-                  >
-                    <option>Select your institution</option>
-                    <option>Rajiv Gandhi Institute of IT, Mumbai</option>
-                    <option>Hyderabad Institute of Technology</option>
-                    <option>Delhi Technical University</option>
-                  </select>
-                  <ChevronDown
-                    size={13}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            <div>
-              <FieldLabel label="Email Address" required />
-              <div className="relative">
-                <Mail
-                  size={13}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-                />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@institution.edu"
-                  className={`${inputCls} pl-9`}
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <FieldLabel label="Password" required />
-                <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
-                  Reset password
-                </button>
-              </div>
-              <PwdInput
-                value={pwd}
-                onChange={setPwd}
-                placeholder="Admin password"
-              />
-            </div>
-
-            {/* security badges */}
-            <div className="flex gap-2 flex-wrap">
-              {["256-bit SSL", "IP Allowlist", "Audit Log", "2FA Required"].map(
-                (b) => (
-                  <span
-                    key={b}
-                    className="flex items-center gap-1 px-2 py-0.5 bg-[#EBF1FA] text-[#1B3A6B] text-[10.5px] font-medium rounded-full"
-                  >
-                    <Check size={9} />
-                    {b}
-                  </span>
-                ),
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex flex-col items-center gap-2 py-2">
-              <div className="w-12 h-12 rounded-2xl bg-[#1B3A6B] flex items-center justify-center">
-                <ShieldCheck size={22} className="text-white" />
-              </div>
-              <p className="text-[14px] font-semibold text-[#0F1C3F]">
-                Two-Factor Authentication
-              </p>
-              <p className="text-[12.5px] text-[#5A6A8A] text-center leading-relaxed">
-                Enter the 6-digit code from your authenticator app
-                <br />
-                (Google Authenticator / Authy)
-              </p>
-            </div>
-            <OTPRow value={otp} onChange={setOtp} />
-            <p className="text-center text-[11.5px] text-[#9AA5BE]">
-              Code resets every 30 seconds
-            </p>
-            <button
-              onClick={() => setTwoFA(false)}
-              className="w-full text-center text-[12px] text-[#5A6A8A] hover:text-[#1B3A6B]"
-            >
-              ← Back to credentials
-            </button>
+        <div>
+          <FieldLabel label="Email Address" required />
+          <div className="relative">
+            <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]" />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@example.com"
+              className={`${inputCls} pl-9`}
+            />
           </div>
-        )}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <FieldLabel label="Password" required />
+          </div>
+          <PwdInput value={pwd} onChange={setPwd} placeholder="Admin password" />
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {["Course CRUD", "Curriculum Builder", "Publish Workflow", "Admin RBAC"].map((b) => (
+            <span
+              key={b}
+              className="flex items-center gap-1 px-2 py-0.5 bg-[#EBF1FA] text-[#1B3A6B] text-[10.5px] font-medium rounded-full"
+            >
+              <Check size={9} />
+              {b}
+            </span>
+          ))}
+        </div>
 
         <button
           onClick={submit}
           disabled={loading}
           className="w-full py-3 bg-[#1B3A6B] hover:bg-[#152d54] text-white rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
         >
-          {loading ? (
-            <RefreshCw size={15} className="animate-spin" />
-          ) : (
-            <ShieldCheck size={15} />
-          )}
-          {loading
-            ? twoFA
-              ? "Verifying…"
-              : "Checking credentials…"
-            : twoFA
-              ? "Verify & Sign In"
-              : "Continue to 2FA"}
+          {loading ? <RefreshCw size={15} className="animate-spin" /> : <LogIn size={15} />}
+          {loading ? "Signing in…" : "Open Admin Portal"}
         </button>
-
-        <p className="text-center text-[11.5px] text-[#9AA5BE]">
-          Having trouble?{" "}
-          <button className="text-[#1B3A6B] hover:underline font-medium">
-            Contact IT Support
-          </button>
-        </p>
       </div>
 
       <div className="px-8 pb-6">
@@ -598,19 +581,6 @@ export function AdminLogin({
     </AuthCard>
   );
 }
-
-// ─── STUDENT REGISTRATION ────────────────────────────────────────────────────
-
-type RegStep = "details" | "verify" | "college" | "done";
-
-const STEP_LABELS: Record<RegStep, string> = {
-  details: "Personal Details",
-  verify: "Verify Identity",
-  college: "College & Course",
-  done: "All Set!",
-};
-
-const STEP_ORDER: RegStep[] = ["details", "verify", "college", "done"];
 
 export function StudentRegister({
   onBack,
@@ -632,20 +602,39 @@ export function StudentRegister({
   const [pwd, setPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
 
-  // step 2 — verify email
-  const [emailOtp, setEmailOtp] = useState("");
-  const [emailVerified, setEmailVerified] = useState(false);
-
-  // step 3 — college
+  // step 2 — college
   const [college, setCollege] = useState("");
   const [dept, setDept] = useState("");
   const [year, setYear] = useState("");
   const [rollNo, setRollNo] = useState("");
   const [terms, setTerms] = useState(false);
+  const [colleges, setColleges] = useState<MasterOption[]>([]);
+  const [programs, setPrograms] = useState<MasterOption[]>([]);
+  const [mastersLoading, setMastersLoading] = useState(false);
 
   const curIdx = STEP_ORDER.indexOf(step);
 
-  const next = () => {
+  useEffect(() => {
+    if (step !== "college" || colleges.length > 0) return;
+    setMastersLoading(true);
+    getColleges()
+      .then(setColleges)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setMastersLoading(false));
+  }, [step, colleges.length]);
+
+  useEffect(() => {
+    setDept("");
+    setPrograms([]);
+    if (!college) return;
+    setMastersLoading(true);
+    getPrograms(college)
+      .then(setPrograms)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setMastersLoading(false));
+  }, [college]);
+
+  const next = async () => {
     setError("");
     if (step === "details") {
       if (!name || !email || !phone || !pwd) {
@@ -660,14 +649,12 @@ export function StudentRegister({
         setError("Passwords do not match.");
         return;
       }
-      setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
-        setStep("verify");
-      }, 1000);
-    } else if (step === "verify") {
-      if (!emailVerified) {
-        setError("Please verify your email.");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setError("Please enter a valid email address.");
+        return;
+      }
+      if (!/^[6-9]\d{9}$/.test(phone)) {
+        setError("Please enter a valid 10-digit Indian mobile number.");
         return;
       }
       setStep("college");
@@ -681,17 +668,27 @@ export function StudentRegister({
         return;
       }
       setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
+      try {
+        await registerStudent({
+          full_name: name,
+          email,
+          mobile: phone,
+          password: pwd,
+          college_id: college,
+          program_id: dept,
+          current_year: year,
+          roll_number: rollNo || undefined,
+          accept_terms: terms,
+        });
         setStep("done");
-      }, 1400);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+      } finally {
+        setLoading(false);
+      }
     } else {
       onSuccess();
     }
-  };
-
-  const verifyCode = () => {
-    if (emailOtp.length === 6) setEmailVerified(true);
   };
 
   return (
@@ -715,7 +712,7 @@ export function StudentRegister({
               >
                 {done ? <Check size={12} /> : i + 1}
               </div>
-              {i < 2 && (
+              {i < 1 && (
                 <div
                   className={`flex-1 h-0.5 mx-1 transition-all ${done ? "bg-emerald-400" : "bg-[#EFF2FA]"}`}
                 />
@@ -818,59 +815,15 @@ export function StudentRegister({
               )}
             </div>
 
+            <Divider label="or sign up with" />
+            <div className="flex gap-3">
+              <SocialBtn icon="🔵" label="Google" />
+              <SocialBtn icon="💼" label="LinkedIn" />
+            </div>
           </>
         )}
 
-        {/* ── step 2: verify ── */}
-        {step === "verify" && (
-          <div className="space-y-5">
-            {/* email otp */}
-            <div
-              className={`p-4 rounded-xl border-2 transition-all ${emailVerified ? "border-emerald-400 bg-emerald-50" : "border-[rgba(27,58,107,0.12)] bg-white"}`}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Mail
-                    size={14}
-                    className={
-                      emailVerified ? "text-emerald-600" : "text-[#1B3A6B]"
-                    }
-                  />
-                  <span className="text-[13px] font-semibold text-[#0F1C3F]">
-                    Verify Email
-                  </span>
-                </div>
-                {emailVerified ? (
-                  <span className="flex items-center gap-1 text-[11.5px] font-semibold text-emerald-600">
-                    <Check size={12} />
-                    Verified
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-[#5A6A8A]">{email}</span>
-                )}
-              </div>
-              {!emailVerified && (
-                <div className="space-y-2">
-                  <OTPRow value={emailOtp} onChange={setEmailOtp} />
-                  <div className="flex items-center justify-between">
-                    <button
-                      onClick={verifyCode}
-                      className="px-4 py-1.5 bg-[#1B3A6B] text-white text-[12px] font-semibold rounded-lg hover:bg-[#152d54] transition-colors"
-                    >
-                      Verify Code
-                    </button>
-                    <button className="text-[11.5px] text-[#1B3A6B] hover:underline">
-                      Resend
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* ── step 3: college ── */}
+        {/* ── step 2: college ── */}
         {step === "college" && (
           <>
             <div>
@@ -883,15 +836,11 @@ export function StudentRegister({
                 <select
                   value={college}
                   onChange={(e) => setCollege(e.target.value)}
+                  disabled={mastersLoading && colleges.length === 0}
                   className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
                 >
-                  <option value="">Search or select your college</option>
-                  <option>Rajiv Gandhi Institute of IT, Mumbai</option>
-                  <option>Hyderabad Institute of Technology</option>
-                  <option>Delhi Technical University</option>
-                  <option>Anna University, Chennai</option>
-                  <option>BITS Pilani</option>
-                  <option>Other / Not listed</option>
+                  <option value="">{mastersLoading && colleges.length === 0 ? "Loading colleges…" : "Select your college"}</option>
+                  {colleges.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
                 <ChevronDown
                   size={13}
@@ -909,16 +858,11 @@ export function StudentRegister({
                 <select
                   value={dept}
                   onChange={(e) => setDept(e.target.value)}
+                  disabled={!college || mastersLoading}
                   className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
                 >
-                  <option value="">Select department</option>
-                  <option>Computer Science & Engineering</option>
-                  <option>Information Technology</option>
-                  <option>Electronics & Communication</option>
-                  <option>Mechanical Engineering</option>
-                  <option>Civil Engineering</option>
-                  <option>MBA / Management</option>
-                  <option>MCA</option>
+                  <option value="">{mastersLoading && college ? "Loading programs…" : "Select department"}</option>
+                  {programs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
                 <ChevronDown
                   size={13}
@@ -1009,8 +953,8 @@ export function StudentRegister({
             </div>
             <div className="w-full space-y-2">
               {[
-                { icon: "✅", text: "Email verified" },
-                { icon: "✅", text: "Mobile verified" },
+                { icon: "✅", text: "Personal details saved" },
+                { icon: "✅", text: "Contact details added" },
                 { icon: "✅", text: "College profile linked" },
               ].map((i) => (
                 <div
@@ -1057,7 +1001,7 @@ export function StudentRegister({
               : step === "college"
                 ? "Create Account"
                 : step === "done"
-                  ? "Go to My Portal"
+                  ? "Go to Sign In"
                   : "Continue"}
           </button>
         </div>
@@ -1089,3 +1033,6 @@ export function StudentRegister({
     </AuthCard>
   );
 }
+
+
+
