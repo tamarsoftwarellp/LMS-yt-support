@@ -39,7 +39,8 @@ export default function App() {
   }
   if (mode === "admin-lms") {
     if (!hasAdminSession()) return <AdminLogin onBack={() => setMode("home")} onSuccess={() => setMode("admin-lms")} />;
-    return <LMSAdminSection onBack={async () => { await logoutAdmin(); setMode("home"); }} />;
+    const leaveAdmin=async()=>{await logoutAdmin();setMode("home");};
+    return <LMSAdminSection onBack={leaveAdmin} onLogout={leaveAdmin} />;
   }
   return <CollegePortal onSwitch={() => setMode("student")} onHome={() => setMode("home")} />;
 }

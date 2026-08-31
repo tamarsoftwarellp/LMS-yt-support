@@ -84,6 +84,10 @@ def test_admin_can_log_in() -> None:
     response = client.post("/api/v1/auth/admin/login", json={"email": "admin@example.com", "password": "StrongPass123"})
     assert response.status_code == 200, response.text
     assert response.json()["access_token"]
+    profile = client.get("/api/v1/auth/admin/me", headers={"Authorization": f"Bearer {response.json()['access_token']}"})
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["email"] == "admin@example.com"
+    assert profile.json()["role"] == "admin"
 
 
 def test_student_cannot_log_in_as_admin() -> None:

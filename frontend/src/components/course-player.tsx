@@ -22,6 +22,7 @@ export interface Lesson {
   youtubeId?: string; // YouTube video ID for this lesson, e.g. "dQw4w9WgXcQ"
   resumePosition?: number;
   watchedPercentage?: number;
+  articleContent?: string;
 }
 
 export interface Section {
@@ -466,7 +467,7 @@ function OverviewTab({ course }: { course: CourseData }) {
       {/* what you'll learn */}
       <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4">
         <p className="text-[13.5px] font-bold text-[#0F1C3F] mb-3">What you will learn</p>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {course.skills.map(s => (
             <div key={s} className="flex items-start gap-2 text-[12.5px] text-[#374151]">
               <Check size={13} className="text-emerald-500 mt-0.5 shrink-0" />
@@ -479,178 +480,17 @@ function OverviewTab({ course }: { course: CourseData }) {
   );
 }
 
-// ─── RESOURCES TAB ────────────────────────────────────────────────────────────
-function ResourcesTab() {
-  const files = [
-    { name: "Lesson Slides.pdf", size: "2.4 MB", icon: FileText },
-    { name: "Starter Code.zip", size: "890 KB", icon: Paperclip },
-    { name: "Cheatsheet.pdf",   size: "340 KB", icon: FileText },
-  ];
-  return (
-    <div className="space-y-2">
-      {files.map(f => (
-        <div key={f.name} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-[rgba(27,58,107,0.1)] hover:border-[#1B3A6B]/30 transition-colors group cursor-pointer">
-          <div className="w-8 h-8 rounded-lg bg-[#EBF1FA] flex items-center justify-center shrink-0">
-            <f.icon size={14} className="text-[#1B3A6B]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-medium text-[#0F1C3F] truncate">{f.name}</p>
-            <p className="text-[11px] text-[#9AA5BE]">{f.size}</p>
-          </div>
-          <Download size={14} className="text-[#9AA5BE] group-hover:text-[#1B3A6B] transition-colors" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── ARTICLE VIEW ─────────────────────────────────────────────────────────────
 function ArticleView({ lesson }: { lesson: Lesson }) {
-  const sections = [
-    { heading: "Introduction", body: `Understanding ${lesson.title} is foundational for building modern applications. The concepts covered here are used in virtually every production system you'll encounter in your career.` },
-    { heading: "Core Concepts", body: "At its heart, this module is about understanding how data flows through a system. We'll explore the key primitives and how they compose into larger patterns." },
-    { heading: "Practical Example", body: "Let's look at a real-world implementation. Notice how the principles we discussed translate directly into working code. Try typing this out rather than copy-pasting — the muscle memory matters." },
-    { heading: "Summary", body: "You've now covered the fundamentals. The next lesson builds directly on what you've learned here, so make sure you're comfortable before moving on." },
-  ];
   return (
-    <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-6 space-y-5">
-      {sections.map(s => (
-        <div key={s.heading}>
-          <p className="text-[15px] font-bold text-[#0F1C3F] mb-2">{s.heading}</p>
-          <p className="text-[13.5px] text-[#5A6A8A] leading-relaxed">{s.body}</p>
-        </div>
-      ))}
+    <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4 sm:p-6">
+      {lesson.articleContent?.trim() ? <div className="text-[13.5px] text-[#374151] leading-7 whitespace-pre-wrap break-words">{lesson.articleContent}</div> : <div className="py-8 text-center text-[13px] text-[#5A6A8A]">Article content has not been added yet.</div>}
     </div>
   );
 }
 
-// ─── QUIZ VIEW ────────────────────────────────────────────────────────────────
-const QUIZ_BANK = [
-  { q: "What is the correct way to declare a React functional component?", options: ["function MyComp() { return <div/>; }", "class MyComp extends Component {}", "const MyComp = class {}", "React.create('MyComp')"], correct: 0 },
-  { q: "Which hook replaces componentDidMount in functional components?", options: ["useState", "useEffect", "useRef", "useMemo"], correct: 1 },
-  { q: "What does the dependency array in useEffect control?", options: ["Component props", "When the effect re-runs", "Render count", "Component children"], correct: 1 },
-];
-
-function QuizView({ onComplete }: { onComplete: () => void }) {
-  const [answers, setAnswers] = useState<(number | null)[]>(QUIZ_BANK.map(() => null));
-  const [submitted, setSubmitted] = useState(false);
-  const score = submitted ? answers.filter((a, i) => a === QUIZ_BANK[i].correct).length : 0;
-
-  return (
-    <div className="space-y-5">
-      {QUIZ_BANK.map((q, qi) => (
-        <div key={qi} className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-5">
-          <p className="text-[13.5px] font-semibold text-[#0F1C3F] mb-3">{qi + 1}. {q.q}</p>
-          <div className="space-y-2">
-            {q.options.map((opt, oi) => {
-              const chosen = answers[qi] === oi;
-              const isCorrect = oi === q.correct;
-              return (
-                <button key={oi} disabled={submitted} onClick={() => setAnswers(a => { const n = [...a]; n[qi] = oi; return n; })}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-[13px] text-left transition-all
-                    ${submitted && isCorrect ? "border-emerald-400 bg-emerald-50 text-emerald-800" :
-                      submitted && chosen && !isCorrect ? "border-red-300 bg-red-50 text-red-600" :
-                      chosen ? "border-[#1B3A6B] bg-[#EBF1FA] text-[#1B3A6B]" :
-                      "border-[rgba(27,58,107,0.12)] hover:border-[#1B3A6B]/40"}`}>
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0
-                    ${chosen ? "bg-[#1B3A6B] text-white" : "bg-[#EFF2FA] text-[#5A6A8A]"}`}>
-                    {String.fromCharCode(65 + oi)}
-                  </span>
-                  {opt}
-                  {submitted && isCorrect && <CheckCircle2 size={14} className="text-emerald-500 ml-auto" />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      {!submitted ? (
-        <button disabled={answers.some(a => a === null)}
-          onClick={() => setSubmitted(true)}
-          className="w-full py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 disabled:opacity-40 transition-colors text-[14px]">
-          Submit Quiz
-        </button>
-      ) : (
-        <div className={`p-4 rounded-xl border-2 text-center ${score === QUIZ_BANK.length ? "border-emerald-400 bg-emerald-50" : score >= 2 ? "border-amber-400 bg-amber-50" : "border-red-300 bg-red-50"}`}>
-          <p className="text-[16px] font-bold mb-1">{score}/{QUIZ_BANK.length} correct</p>
-          <p className="text-[13px] text-[#5A6A8A] mb-3">{score === QUIZ_BANK.length ? "Perfect score! 🎉" : score >= 2 ? "Good effort — review incorrect answers." : "Review the material and try again."}</p>
-          <button onClick={onComplete} className="px-6 py-2 bg-[#1B3A6B] text-white text-[13px] font-semibold rounded-xl hover:bg-[#152d54] transition-colors">
-            Continue
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── ASSIGNMENT VIEW ──────────────────────────────────────────────────────────
-function AssignmentView({ lesson }: { lesson: Lesson }) {
-  const [uploaded, setUploaded] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [uploading, setUploading] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const simulate = () => {
-    setUploading(true);
-    setProgress(0);
-    const iv = setInterval(() => {
-      setProgress(p => {
-        if (p >= 100) { clearInterval(iv); setUploading(false); return 100; }
-        return p + 8;
-      });
-    }, 120);
-  };
-
-  return (
-    <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-6 space-y-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-[15px] font-bold text-[#0F1C3F]">{lesson.title}</p>
-          <p className="text-[12.5px] text-[#5A6A8A] mt-0.5">Estimated time: {lesson.duration}m</p>
-        </div>
-        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-[11.5px] font-semibold rounded-xl border border-amber-200">50 marks</span>
-      </div>
-
-      <div className="p-4 bg-[#F8FAFB] rounded-xl border border-[rgba(27,58,107,0.08)]">
-        <p className="text-[13px] font-semibold text-[#0F1C3F] mb-2">Instructions</p>
-        <p className="text-[13px] text-[#5A6A8A] leading-relaxed">
-          Build a complete project applying the concepts from this module. Your submission will be reviewed by the instructor. Follow the rubric carefully and ensure your code is well-commented and organized.
-        </p>
-      </div>
-
-      <div>
-        <p className="text-[12.5px] font-semibold text-[#0F1C3F] mb-2">Submit Your Work</p>
-        <input ref={fileRef} type="file" className="hidden" onChange={e => {
-          const f = e.target.files?.[0];
-          if (f) { setUploaded(f.name); simulate(); }
-        }} />
-        <div onClick={() => fileRef.current?.click()}
-          className="border-2 border-dashed border-[rgba(27,58,107,0.2)] rounded-xl p-6 text-center hover:border-[#1B3A6B] transition-colors cursor-pointer">
-          <Paperclip size={20} className="text-[#5A6A8A] mx-auto mb-2" />
-          <p className="text-[13px] font-medium text-[#1B3A6B]">{uploaded || "Upload your project files"}</p>
-          <p className="text-[11.5px] text-[#9AA5BE]">ZIP, PDF, or GitHub URL · Max 50MB</p>
-        </div>
-        {uploading && (
-          <div className="mt-2">
-            <div className="h-1.5 bg-[#F1F3F9] rounded-full overflow-hidden">
-              <div className="h-full bg-[#1B3A6B] rounded-full transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <p className="text-[11px] text-[#9AA5BE] mt-1">Uploading… {progress}%</p>
-          </div>
-        )}
-        {!uploading && progress === 100 && (
-          <p className="text-[12px] text-emerald-600 font-medium mt-2 flex items-center gap-1.5"><CheckCircle2 size={13} /> File uploaded successfully</p>
-        )}
-      </div>
-
-      <button disabled={progress < 100}
-        className="w-full py-2.5 bg-amber-500 text-white text-[13.5px] font-semibold rounded-xl hover:bg-amber-600 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
-        <Send size={14} /> Submit Assignment
-      </button>
-    </div>
-  );
-}
+function QuizView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This quiz is not configured yet.</div>; }
+function AssignmentView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This assignment is not configured yet.</div>; }
 
 // ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
 export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
@@ -660,7 +500,7 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
   const [expanded, setExpanded] = useState<string[]>(course.sections.map(s => s.id));
   const [completedIds, setCompletedIds] = useState<string[]>(allLessons.filter(l => l.completed).map(l => l.id));
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "qa" | "resources">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "qa">("overview");
 
   const total = allLessons.filter(l => !l.locked).length;
   const done = completedIds.length;
@@ -680,10 +520,11 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
   const Icon = lessonIcon[activeLesson.type];
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#1a1a1a]" style={{ fontFamily: "var(--font-sans)" }}>
+    <div className="relative flex h-screen overflow-hidden bg-[#1a1a1a]" style={{ fontFamily: "var(--font-sans)" }}>
 
       {/* ── Sidebar ── */}
-      <aside className={`${sidebarOpen ? "w-[300px]" : "w-0"} bg-[#1a1a1a] border-r border-white/10 flex flex-col shrink-0 overflow-hidden transition-all duration-200`}>
+      {sidebarOpen && <button aria-label="Close curriculum" onClick={()=>setSidebarOpen(false)} className="absolute inset-0 z-20 bg-black/45 md:hidden" />}
+      <aside className={`${sidebarOpen ? "w-[300px] translate-x-0" : "w-[300px] -translate-x-full md:w-0"} absolute md:relative inset-y-0 left-0 z-30 bg-[#1a1a1a] border-r border-white/10 flex flex-col shrink-0 overflow-hidden transition-all duration-200`}>
         <div className="p-4 border-b border-white/10">
           <button onClick={onBack} className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white/80 transition-colors mb-3">
             <ArrowLeft size={13} /> Back to courses
@@ -765,18 +606,18 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
           <div className="flex items-center gap-2 shrink-0">
             <button disabled={curIdx === 0} onClick={() => curIdx > 0 && setActiveLesson(allUnlocked[curIdx - 1])}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] text-white/60 hover:text-white border border-white/10 hover:border-white/30 rounded-lg disabled:opacity-30 transition-colors">
-              <ChevronLeft size={12} /> Prev
+              <ChevronLeft size={12} /><span className="hidden sm:inline">Prev</span>
             </button>
             <button disabled={curIdx >= allUnlocked.length - 1} onClick={() => curIdx < allUnlocked.length - 1 && setActiveLesson(allUnlocked[curIdx + 1])}
               className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] text-white/60 hover:text-white border border-white/10 hover:border-white/30 rounded-lg disabled:opacity-30 transition-colors">
-              Next <ChevronRight size={12} />
+              <span className="hidden sm:inline">Next</span><ChevronRight size={12} />
             </button>
           </div>
         </div>
 
         {/* content area */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-[820px] mx-auto px-6 py-6">
+          <div className="max-w-[820px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
             {/* lesson header */}
             <div className="flex items-center gap-2 mb-2">
               <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border
@@ -798,8 +639,8 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
             {/* lesson content */}
             {activeLesson.type === "video" && <VideoPlayer lesson={activeLesson} color={course.color} onEnded={()=>markDone(true)} onAutoCompleted={()=>markDone(false)} onProgress={(previous,current,duration)=>onVideoProgress?.(activeLesson.id,previous,current,duration)??Promise.resolve({status:"in_progress",watched_percentage:0})} />}
             {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
-            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView onComplete={()=>markDone(true)} />)}
-            {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView lesson={activeLesson} />)}
+            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView />)}
+            {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView />)}
 
             {/* mark complete */}
             {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && (
@@ -823,7 +664,6 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
                   { key: "overview", label: "Overview", icon: BookOpen },
                   { key: "notes", label: "Notes", icon: List },
                   { key: "qa", label: "Q&A", icon: MessageSquare },
-                  { key: "resources", label: "Resources", icon: Download },
                 ] as const).map(tab => (
                   <button key={tab.key} onClick={() => setActiveTab(tab.key)}
                     className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors
@@ -837,7 +677,6 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
               {activeTab === "overview" && <OverviewTab course={course} />}
               {activeTab === "notes" && <NotesTab lessonTitle={activeLesson.title} />}
               {activeTab === "qa" && <QATab />}
-              {activeTab === "resources" && <ResourcesTab />}
             </div>
           </div>
         </div>

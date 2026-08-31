@@ -2,12 +2,57 @@ import json
 import re
 
 from fastapi import HTTPException, status
-from groq import AuthenticationError, Groq, NotFoundError, RateLimitError
+from groq import AuthenticationError, BadRequestError, Groq, NotFoundError, RateLimitError
 
 from .config import get_settings
 from .resume_builder_schemas import ResumeContent
 
-PROMPT_VERSION = "resume-groq-v1"
+PROMPT_VERSION = "resume-groq-v2"
+
+
+def _resume_json_schema() -> dict:
+    nullable = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+    entry = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"}, "subtitle": nullable,
+            "start_date": nullable, "end_date": nullable, "location": nullable,
+            "description": nullable, "bullets": {"type": "array", "items": {"type": "string"}},
+            "technologies": {"type": "array", "items": {"type": "string"}}, "url": nullable,
+        },
+        "required": ["title", "subtitle", "start_date", "end_date", "location", "description", "bullets", "technologies", "url"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "professional_summary": {"type": "string"},
+            "skills": {"type": "array", "items": {"type": "string"}},
+            "educations": {"type": "array", "items": entry},
+            "experiences": {"type": "array", "items": entry},
+            "projects": {"type": "array", "items": entry},
+            "certifications": {"type": "array", "items": entry},
+            "achievements": {"type": "array", "items": {"type": "string"}},
+            "languages": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["professional_summary", "skills", "educations", "experiences", "projects", "certifications", "achievements", "languages"],
+        "additionalProperties": False,
+    }
+
+
+def _fact_safe_fallback(snapshot: dict) -> ResumeContent:
+    role = (snapshot.get("target_role") or "professional").strip()
+    skills = [str(value).strip() for value in snapshot.get("confirmed_skills", []) if str(value).strip()]
+    supplied = (snapshot.get("professional_summary") or "").strip()
+    if len(supplied) < 30:
+        skill_text = f" with verified skills in {', '.join(skills[:6])}" if skills else ""
+        supplied = f"Student preparing for a {role} role{skill_text}, with education and project details documented below."
+    return ResumeContent.model_validate({
+        "professional_summary": supplied, "skills": skills,
+        "educations": snapshot.get("educations") or [], "experiences": snapshot.get("experiences") or [],
+        "projects": snapshot.get("projects") or [], "certifications": snapshot.get("certifications") or [],
+        "achievements": snapshot.get("achievements") or [], "languages": snapshot.get("languages") or [],
+    })
 
 
 def generate_resume_content(snapshot: dict) -> tuple[ResumeContent, str]:
@@ -16,19 +61,26 @@ def generate_resume_content(snapshot: dict) -> tuple[ResumeContent, str]:
         raise HTTPException(status_code=503, detail="Resume generation is not configured. Add GROQ_API_KEY in backend/.env.")
     client = Groq(api_key=settings.groq_api_key, timeout=90.0, max_retries=2)
     prompt = ("You are an ATS resume writing assistant. Use ONLY facts in the supplied snapshot. Never invent employers, dates, degrees, marks, metrics, links, certifications, technologies, or achievements. "
-        "Improve wording using concise action verbs, preserve all factual meaning, and align naturally to target_role. If a fact is missing, omit it. Return one JSON object matching this schema exactly: "
-        + json.dumps(ResumeContent.model_json_schema(), ensure_ascii=False))
+        "Improve wording using concise action verbs, preserve all factual meaning, and align naturally to target_role. Use null for missing optional entry fields and [] for missing lists.")
     try:
         response = client.chat.completions.create(model=settings.groq_model,
             messages=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False)}],
-            response_format={"type":"json_object"}, temperature=0.1, max_completion_tokens=3500)
+            response_format={"type":"json_schema","json_schema":{"name":"ats_resume","strict":True,"schema":_resume_json_schema()}},
+            temperature=0.1, max_completion_tokens=3500)
+    except BadRequestError:
+        try:
+            response = client.chat.completions.create(model=settings.groq_model,
+                messages=[{"role":"system","content":prompt + " Return only one valid JSON object."},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False)}],
+                response_format={"type":"json_object"}, temperature=0.1, max_completion_tokens=3500)
+        except Exception:
+            return _fact_safe_fallback(snapshot), f"{settings.groq_model}:fallback"
     except NotFoundError as exc: raise HTTPException(status_code=502, detail=f"Groq model '{settings.groq_model}' is unavailable") from exc
     except AuthenticationError as exc: raise HTTPException(status_code=503, detail="Groq rejected the API key") from exc
     except RateLimitError as exc: raise HTTPException(status_code=429, detail="Groq Free Tier rate limit reached. Please wait and retry.") from exc
     except Exception as exc: raise HTTPException(status_code=502, detail="Resume generation is temporarily unavailable") from exc
     content = response.choices[0].message.content if response.choices else None
     try: return ResumeContent.model_validate_json(content or ""), settings.groq_model
-    except Exception as exc: raise HTTPException(status_code=502, detail="Groq returned an invalid resume structure") from exc
+    except Exception: return _fact_safe_fallback(snapshot), f"{settings.groq_model}:fallback"
 
 
 def ats_evaluate(snapshot: dict, content: dict) -> dict:

@@ -12,6 +12,15 @@ export interface AdminSession {
   expires_in: number;
 }
 
+export interface AdminProfile {
+  id: string;
+  email: string;
+  mobile: string;
+  role: "admin";
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface AdminApiError extends Error {
   issues?: string[];
   detail?: string;
@@ -199,6 +208,7 @@ async function authorized<T>(path: string, init?: RequestInit, retry = true): Pr
 }
 
 export const adminApiRequest = authorized;
+export const getCurrentAdmin = () => adminApiRequest<AdminProfile>("/api/v1/auth/admin/me");
 
 export async function logoutAdmin() {
   const refreshToken = localStorage.getItem(REFRESH_KEY);
