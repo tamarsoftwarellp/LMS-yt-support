@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Building2, Users, BarChart2, CreditCard,
   ClipboardList, Settings, Bell, Search, ChevronRight, ArrowLeft,
@@ -21,6 +21,8 @@ import { LMSAdminSection } from "./lms-admin";
 type AdminSection =
   | "dashboard" | "colleges" | "students" | "analytics"
   | "subscriptions" | "audit" | "settings" | "lms-admin";
+const SUPER_ADMIN_PATH:Record<AdminSection,string>={dashboard:"/super-admin/dashboard",colleges:"/super-admin/colleges",students:"/super-admin/students",analytics:"/super-admin/analytics",subscriptions:"/super-admin/subscriptions",audit:"/super-admin/audit-logs",settings:"/super-admin/settings","lms-admin":"/super-admin/lms"};
+function superAdminSectionFromPath(pathname:string):AdminSection{return (Object.entries(SUPER_ADMIN_PATH) as [AdminSection,string][]).find(([,path])=>path===pathname)?.[0]||"dashboard";}
 
 
 type CollegeStatus = "active" | "pending" | "suspended" | "review";
@@ -941,8 +943,10 @@ function SettingsSection() {
 
 // ─── main layout ──────────────────────────────────────────────────────────────
 export function SuperAdminPanel({ onBack }: { onBack: () => void }) {
-  const [section, setSection] = useState<AdminSection>("dashboard");
+  const [section, setSection] = useState<AdminSection>(()=>superAdminSectionFromPath(window.location.pathname));
   const [notifOpen, setNotifOpen] = useState(false);
+  useEffect(()=>{if(window.location.pathname==="/super-admin")window.history.replaceState({},"",SUPER_ADMIN_PATH.dashboard);const restore=()=>setSection(superAdminSectionFromPath(window.location.pathname));window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);},[]);
+  const navigateSection=(next:AdminSection)=>{if(window.location.pathname!==SUPER_ADMIN_PATH[next])window.history.pushState({},"",SUPER_ADMIN_PATH[next]);setSection(next);};
 
   const NOTIFICATIONS = [
     { icon: Building2, msg: "BITS Pilani is awaiting approval",       time: "10m ago", dot: true  },
@@ -1039,7 +1043,7 @@ export function SuperAdminPanel({ onBack }: { onBack: () => void }) {
             {NAV_ITEMS.map(item => {
               const active = item.key === section;
               return (
-                <button key={item.key} onClick={() => setSection(item.key)}
+                <button key={item.key} onClick={() => navigateSection(item.key)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all
                     ${active ? "bg-white/10 text-white" : "text-white/50 hover:text-white/80 hover:bg-white/5"}`}>
                   <item.icon size={16} className={active ? "text-white" : ""} />

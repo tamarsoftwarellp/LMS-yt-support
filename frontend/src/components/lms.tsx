@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CoursePlayer } from "./course-player";
 import type { CourseData } from "./course-player";
 import {
@@ -19,6 +19,8 @@ import {
 
 // ─── types ────────────────────────────────────────────────────────────────────
 type LMSSection = "dashboard" | "my-courses" | "catalog" | "assignments" | "progress" | "certificates";
+const LMS_SECTION_PATH:Record<LMSSection,string>={dashboard:"/lms/dashboard","my-courses":"/lms/my-courses",catalog:"/lms/catalog",assignments:"/lms/assignments",progress:"/lms/progress",certificates:"/lms/certificates"};
+function lmsSectionFromPath(pathname:string):LMSSection{return (Object.entries(LMS_SECTION_PATH) as [LMSSection,string][]).find(([,path])=>path===pathname)?.[0]||"dashboard";}
 type LessonType = "video" | "article" | "quiz" | "assignment";
 type CourseLevel = "Beginner" | "Intermediate" | "Advanced";
 
@@ -860,16 +862,19 @@ const LMS_NAV: { key: LMSSection; icon: React.ElementType; label: string; badge?
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export function LMSModule({ onBack }: { onBack: () => void }) {
-  const [section, setSection] = useState<LMSSection>("dashboard");
-  const [activeCourse, setActiveCourse] = useState<Course | null>(null);
+  const [section, setSection] = useState<LMSSection>(()=>lmsSectionFromPath(window.location.pathname));
+  const [activeCourse, setActiveCourse] = useState<Course | null>(()=>{const id=window.location.pathname.match(/^\/lms\/courses\/([^/]+)$/)?.[1];return COURSES.find(course=>course.id===id)||null;});
+  const navigateSection=(next:LMSSection)=>{window.history.pushState({},"",LMS_SECTION_PATH[next]);setSection(next);setActiveCourse(null);};
+  useEffect(()=>{if(window.location.pathname==="/lms")window.history.replaceState({},"",LMS_SECTION_PATH.dashboard);const restore=()=>{const id=window.location.pathname.match(/^\/lms\/courses\/([^/]+)$/)?.[1];setActiveCourse(COURSES.find(course=>course.id===id)||null);setSection(lmsSectionFromPath(window.location.pathname));};window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);},[]);
 
   const openCourse = (c: Course) => {
     if (c.sections.length === 0) return;
+    window.history.pushState({},"",`/lms/courses/${c.id}`);
     setActiveCourse(c);
   };
 
   const screenMap: Record<LMSSection, React.ReactNode> = {
-    dashboard:    <LMSDashboard onCourse={openCourse} onSection={setSection} />,
+    dashboard:    <LMSDashboard onCourse={openCourse} onSection={navigateSection} />,
     "my-courses": <MyCourses onCourse={openCourse} />,
     catalog:      <CourseCatalog onCourse={openCourse} />,
     assignments:  <AssignmentsSection />,
@@ -933,7 +938,7 @@ export function LMSModule({ onBack }: { onBack: () => void }) {
               {LMS_NAV.map(item => {
                 const active = item.key === section;
                 return (
-                  <button key={item.key} onClick={() => setSection(item.key)}
+                  <button key={item.key} onClick={() => navigateSection(item.key)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all
                       ${active ? "bg-[#EBF1FA] text-[#1B3A6B]" : "text-[#5A6A8A] hover:text-[#1B3A6B] hover:bg-[#F4F7FC]"}`}>
                     <item.icon size={16} className={active ? "text-[#1B3A6B]" : ""} />
@@ -969,7 +974,7 @@ export function LMSModule({ onBack }: { onBack: () => void }) {
         {/* ── content ── */}
         <main className="flex-1 overflow-y-auto">
           {activeCourse ? (
-            <CoursePlayerAdapter course={activeCourse} onBack={() => setActiveCourse(null)} />
+            <CoursePlayerAdapter course={activeCourse} onBack={() => navigateSection(section)} />
           ) : (
             <>
               {/* breadcrumb */}

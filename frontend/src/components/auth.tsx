@@ -582,6 +582,13 @@ export function AdminLogin({
   );
 }
 
+type RegStep = "details" | "college" | "done";
+const STEP_ORDER: RegStep[] = ["details", "college", "done"];
+const STEP_LABELS: Record<Exclude<RegStep,"done">,string> = {
+  details: "Personal & Login Details",
+  college: "College Information",
+};
+
 export function StudentRegister({
   onBack,
   onLogin,
@@ -1033,6 +1040,5 @@ export function StudentRegister({
     </AuthCard>
   );
 }
-
 
 

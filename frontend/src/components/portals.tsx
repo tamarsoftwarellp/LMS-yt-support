@@ -306,7 +306,10 @@ export function StudentPortal({ onSwitch, onHome, onLMS }: { onSwitch: () => voi
    COLLEGE PORTAL
 ════════════════════════════════════════════════════════ */
 export function CollegePortal({ onSwitch, onHome }: { onSwitch: () => void; onHome?: () => void }) {
-  const [step, setStep] = useState(1);
+  const pathStep=Number(window.location.pathname.match(/^\/college\/onboarding\/step-(\d+)$/)?.[1]||1);
+  const [step, setStep] = useState(Math.min(9,Math.max(1,pathStep)));
+  const navigateStep=(next:number)=>{const safe=Math.min(9,Math.max(1,next));window.history.pushState({},"",`/college/onboarding/step-${safe}`);setStep(safe);window.scrollTo({top:0,behavior:"smooth"});};
+  useEffect(()=>{if(window.location.pathname==="/college")window.history.replaceState({},"","/college/onboarding/step-1");const restore=()=>setStep(Math.min(9,Math.max(1,Number(window.location.pathname.match(/^\/college\/onboarding\/step-(\d+)$/)?.[1]||1))));window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);},[]);
   const isCompleted = (s: number) => s < step;
 
   const stepComponents: Record<number, React.ReactNode> = {
@@ -394,7 +397,7 @@ export function CollegePortal({ onSwitch, onHome }: { onSwitch: () => void; onHo
                     const done   = isCompleted(sid);
                     const active = sid === step;
                     return (
-                      <button key={sid} onClick={() => done && setStep(sid)}
+                      <button key={sid} onClick={() => done && navigateStep(sid)}
                         className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left mb-0.5 transition-all ${active ? "bg-[#EBF1FA]" : done ? "hover:bg-[#F4F7FC] cursor-pointer" : "opacity-40 cursor-default"}`}>
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${done || active ? "bg-[#1B3A6B]" : "bg-[#E8ECF5]"}`}>
                           {done ? <Check size={12} className="text-white" /> : <Icon size={12} className={active ? "text-white" : "text-[#5A6A8A]"} />}
@@ -440,7 +443,7 @@ export function CollegePortal({ onSwitch, onHome }: { onSwitch: () => void; onHo
 
           {/* Footer */}
           <div className="px-8 py-5 border-t border-[--border] flex items-center justify-between">
-            <button onClick={() => step > 1 && setStep(s => s - 1)} disabled={step === 1}
+            <button onClick={() => step > 1 && navigateStep(step-1)} disabled={step === 1}
               className="flex items-center gap-2 px-4 py-2 border border-[--border] rounded-[10px] text-[13.5px] font-medium text-[#5A6A8A] hover:bg-[#F4F7FC] disabled:opacity-30 disabled:cursor-not-allowed transition-all">
               <ArrowLeft size={14} /> Back
             </button>
@@ -457,7 +460,7 @@ export function CollegePortal({ onSwitch, onHome }: { onSwitch: () => void; onHo
             </div>
 
             {step < 9 ? (
-              <button onClick={() => setStep(s => s + 1)}
+              <button onClick={() => navigateStep(step+1)}
                 className="flex items-center gap-2 px-5 py-2 bg-[#1B3A6B] text-white text-[13.5px] rounded-[10px] hover:bg-[#122748] transition-colors font-medium shadow-sm">
                 Continue <ChevronRight size={14} />
               </button>
