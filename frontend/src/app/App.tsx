@@ -11,12 +11,19 @@ import { LMSModule } from "../components/lms";
 import { SRSPage } from "../components/srs";
 import { hasStudentSession, logoutStudent } from "../api/student-auth";
 import { hasAdminSession, logoutAdmin } from "../api/admin-lms";
+import { CertificateVerification } from "../components/certificate-verification";
 
 type Mode = "home" | "college" | "student" | "fsd" | "srs" | "student-login" | "admin-login" | "student-register" | "super-admin" | "project-prompt" | "lms" | "admin-lms";
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>("home");
+  const verificationToken=window.location.pathname.match(/^\/verify-certificate\/([^/]+)$/)?.[1];
+  const [mode, setMode] = useState<Mode>(() => {
+    if (hasStudentSession()) return "student";
+    if (hasAdminSession()) return "admin-lms";
+    return "home";
+  });
 
+  if (verificationToken) return <CertificateVerification token={decodeURIComponent(verificationToken)} onHome={()=>{window.history.pushState({},"","/");setMode("home");}}/>;
   if (mode === "lms")              return <LMSModule onBack={() => setMode("home")} />;
   if (mode === "project-prompt")   return <ProjectPromptPage onBack={() => setMode("home")} />;
   if (mode === "srs")              return <SRSPage onBack={() => setMode("fsd")} />;
@@ -36,5 +43,3 @@ export default function App() {
   }
   return <CollegePortal onSwitch={() => setMode("student")} onHome={() => setMode("home")} />;
 }
-
-

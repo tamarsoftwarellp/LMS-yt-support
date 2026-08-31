@@ -216,6 +216,7 @@ class CourseLesson(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     section: Mapped[CourseSection] = relationship(back_populates="lessons")
     quiz: Mapped["Quiz | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
+    assignment: Mapped["Assignment | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
 
 
 class Quiz(Base):
@@ -299,6 +300,7 @@ class CourseEnrollment(Base):
     progress_percentage: Mapped[int] = mapped_column(Integer, default=0)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     course: Mapped[Course] = relationship()
+    user: Mapped[User] = relationship()
     lesson_progress: Mapped[list["LessonProgress"]] = relationship(cascade="all, delete-orphan")
 
 
@@ -312,6 +314,8 @@ class LessonProgress(Base):
     status: Mapped[str] = mapped_column(String(30), default="in_progress")
     watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
     last_position_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    video_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    watched_ranges: Mapped[list] = mapped_column(JSON, default=list)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -344,3 +348,176 @@ class StudentQuizAnswer(Base):
     selected_option_ids: Mapped[list] = mapped_column(JSON, default=list)
     awarded_marks: Mapped[int] = mapped_column(Integer, default=0)
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+    __table_args__ = (
+        CheckConstraint("maximum_marks > 0", name="ck_assignments_maximum_marks"),
+        CheckConstraint("passing_marks >= 0 and passing_marks <= maximum_marks", name="ck_assignments_passing_marks"),
+        CheckConstraint("maximum_attempts > 0", name="ck_assignments_maximum_attempts"),
+        CheckConstraint("status in ('draft', 'published')", name="ck_assignments_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_lessons.id", ondelete="CASCADE"), unique=True, index=True)
+    instructions: Mapped[str] = mapped_column(Text)
+    maximum_marks: Mapped[int] = mapped_column(Integer, default=100)
+    passing_marks: Mapped[int] = mapped_column(Integer, default=40)
+    maximum_attempts: Mapped[int] = mapped_column(Integer, default=1)
+    allowed_submission_types: Mapped[list] = mapped_column(JSON, default=lambda: ["file", "text", "link"])
+    allowed_file_extensions: Mapped[list] = mapped_column(JSON, default=lambda: ["pdf", "docx", "zip"])
+    maximum_file_size_mb: Mapped[int] = mapped_column(Integer, default=50)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    allow_late_submission: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_resubmission: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    lesson: Mapped[CourseLesson] = relationship(back_populates="assignment")
+    submissions: Mapped[list["AssignmentSubmission"]] = relationship(back_populates="assignment", cascade="all, delete-orphan")
+
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "enrollment_id", "attempt_number", name="uq_assignment_enrollment_attempt"),
+        CheckConstraint("status in ('draft', 'submitted', 'evaluated', 'resubmission_required')", name="ck_assignment_submissions_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    assignment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignments.id", ondelete="CASCADE"), index=True)
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_enrollments.id", ondelete="CASCADE"), index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    link_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    original_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_late: Mapped[bool] = mapped_column(Boolean, default=False)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    assignment: Mapped[Assignment] = relationship(back_populates="submissions")
+    enrollment: Mapped[CourseEnrollment] = relationship()
+    evaluations: Mapped[list["AssignmentEvaluation"]] = relationship(cascade="all, delete-orphan", order_by="AssignmentEvaluation.evaluated_at")
+
+
+class AssignmentEvaluation(Base):
+    __tablename__ = "assignment_evaluations"
+    __table_args__ = (CheckConstraint("decision in ('passed', 'failed', 'resubmission_required')", name="ck_assignment_evaluations_decision"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignment_submissions.id", ondelete="CASCADE"), index=True)
+    evaluated_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    marks_awarded: Mapped[int] = mapped_column(Integer)
+    decision: Mapped[str] = mapped_column(String(30))
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StudentLearningActivity(Base):
+    __tablename__ = "student_learning_activity"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    enrollment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("course_enrollments.id", ondelete="CASCADE"), nullable=True, index=True)
+    lesson_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("course_lessons.id", ondelete="SET NULL"), nullable=True, index=True)
+    activity_type: Mapped[str] = mapped_column(String(50), index=True)
+    seconds_delta: Mapped[int] = mapped_column(Integer, default=0)
+    activity_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Certificate(Base):
+    __tablename__ = "certificates"
+    __table_args__ = (
+        CheckConstraint("status in ('issued', 'revoked', 'superseded')", name="ck_certificates_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    certificate_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    verification_token: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), index=True)
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_enrollments.id", ondelete="CASCADE"), index=True)
+    parent_certificate_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("certificates.id"), nullable=True, index=True)
+    student_name: Mapped[str] = mapped_column(String(180))
+    course_title: Mapped[str] = mapped_column(String(220))
+    instructor_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="issued", index=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revocation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    student: Mapped[User] = relationship(foreign_keys=[student_id])
+    course: Mapped[Course] = relationship()
+    enrollment: Mapped[CourseEnrollment] = relationship()
+    events: Mapped[list["CertificateEvent"]] = relationship(cascade="all, delete-orphan", order_by="CertificateEvent.created_at")
+
+
+class CertificateEvent(Base):
+    __tablename__ = "certificate_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    certificate_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("certificates.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ResumeBuilderProfile(Base):
+    __tablename__ = "resume_builder_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    headline: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    github_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    portfolio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    professional_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    educations: Mapped[list] = mapped_column(JSON, default=list)
+    experiences: Mapped[list] = mapped_column(JSON, default=list)
+    projects: Mapped[list] = mapped_column(JSON, default=list)
+    certifications: Mapped[list] = mapped_column(JSON, default=list)
+    achievements: Mapped[list] = mapped_column(JSON, default=list)
+    languages: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class GeneratedResume(Base):
+    __tablename__ = "generated_resumes"
+    __table_args__ = (UniqueConstraint("user_id", "version", name="uq_generated_resume_user_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    target_role: Mapped[str] = mapped_column(String(180), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    input_snapshot: Mapped[dict] = mapped_column(JSON)
+    content: Mapped[dict] = mapped_column(JSON)
+    model_name: Mapped[str] = mapped_column(String(100))
+    prompt_version: Mapped[str] = mapped_column(String(30), default="resume-groq-v1")
+    status: Mapped[str] = mapped_column(String(30), default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    evaluations: Mapped[list["ResumeAtsEvaluation"]] = relationship(cascade="all, delete-orphan", order_by="ResumeAtsEvaluation.created_at")
+
+
+class ResumeAtsEvaluation(Base):
+    __tablename__ = "resume_ats_evaluations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    resume_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("generated_resumes.id", ondelete="CASCADE"), index=True)
+    score: Mapped[int] = mapped_column(Integer)
+    grade: Mapped[str] = mapped_column(String(30))
+    breakdown: Mapped[dict] = mapped_column(JSON)
+    strengths: Mapped[list] = mapped_column(JSON, default=list)
+    issues: Mapped[list] = mapped_column(JSON, default=list)
+    suggestions: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

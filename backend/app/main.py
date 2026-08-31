@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from .admin_course_router import router as admin_course_router
 from .quiz_router import admin_router as admin_quiz_router, student_router as student_quiz_router
+from .assignment_router import admin_router as admin_assignment_router, student_router as student_assignment_router
+from .analytics_router import admin_router as admin_analytics_router, student_router as student_analytics_router
+from .certificate_router import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
+from .resume_builder_router import router as resume_builder_router
 from .admin_schemas import AdminLoginIn
 from .career_router import router as career_router
 from .config import get_settings
@@ -44,6 +48,14 @@ app.include_router(career_router)
 app.include_router(admin_course_router)
 app.include_router(admin_quiz_router)
 app.include_router(student_quiz_router)
+app.include_router(admin_assignment_router)
+app.include_router(student_assignment_router)
+app.include_router(admin_analytics_router)
+app.include_router(student_analytics_router)
+app.include_router(student_certificate_router)
+app.include_router(admin_certificate_router)
+app.include_router(public_certificate_router)
+app.include_router(resume_builder_router)
 
 STEP_KEYS = {
     "profile": 1,

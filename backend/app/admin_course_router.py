@@ -167,6 +167,10 @@ def _course_issues(course: Course) -> list[str]:
                 issues.append(f"Video lesson '{lesson.title}' requires a YouTube video")
             if lesson.lesson_type == "article" and not (lesson.article_content or "").strip():
                 issues.append(f"Article lesson '{lesson.title}' requires content")
+            if lesson.lesson_type == "quiz" and (not lesson.quiz or lesson.quiz.status != "published"):
+                issues.append(f"Quiz lesson '{lesson.title}' requires a published quiz")
+            if lesson.lesson_type == "assignment" and (not lesson.assignment or lesson.assignment.status != "published"):
+                issues.append(f"Assignment lesson '{lesson.title}' requires a published assignment")
             expected_lesson_sequence += 1
         expected_section_sequence += 1
     return issues
@@ -542,5 +546,4 @@ def reorder_lessons(section_id: uuid.UUID, payload: ReorderPayload, db: Session 
     db.refresh(section)
     section = db.scalar(select(CourseSection).options(selectinload(CourseSection.lessons)).where(CourseSection.id == section_id))
     return AdminSectionOut(**_section_payload(section))
-
 

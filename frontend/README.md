@@ -19,6 +19,13 @@ The Student Registration module is implemented end-to-end without OTP:
 - Admin course and curriculum management with publish/archive workflow
 - Quiz builder with single-choice, multiple-choice and true/false questions
 - Secure student quiz attempts, server-side scoring and progress synchronization
+- Assignment submissions, admin evaluation and pass-based lesson completion
+- YouTube watch progress auto-save, resume position and seek-safe completion
+- Student learning dashboard with weekly activity, streak and next action
+- Admin analytics for active learners, enrollments, completion, quizzes and assignments
+- PDF course certificates with QR verification, revoke/reissue and audit history
+
+Current Alembic head: `20260830_10_certificates`.
 
 ## Setup
 

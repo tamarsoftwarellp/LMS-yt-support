@@ -127,6 +127,12 @@ export interface AdminQuizOption { id?:string; option_text:string; is_correct:bo
 export interface AdminQuizQuestion { id?:string; question_text:string; question_type:"single_choice"|"multiple_choice"|"true_false"; marks:number; explanation?:string|null; sequence?:number; options:AdminQuizOption[] }
 export interface AdminQuiz { id:string; lesson_id:string; instructions:string; passing_percentage:number; maximum_attempts:number; time_limit_minutes?:number|null; show_explanations:boolean; status:"draft"|"published"; questions:AdminQuizQuestion[] }
 export type AdminQuizInput = Omit<AdminQuiz,"id"|"lesson_id"|"status">;
+export interface AdminAssignment { id:string;lesson_id:string;instructions:string;maximum_marks:number;passing_marks:number;maximum_attempts:number;allowed_submission_types:("file"|"text"|"link")[];allowed_file_extensions:("pdf"|"docx"|"zip")[];maximum_file_size_mb:number;due_at?:string|null;allow_late_submission:boolean;allow_resubmission:boolean;status:"draft"|"published" }
+export type AdminAssignmentInput = Omit<AdminAssignment,"id"|"lesson_id"|"status">;
+export interface AssignmentEvaluation {id:string;marks_awarded:number;decision:"passed"|"failed"|"resubmission_required";feedback?:string|null;evaluated_at:string}
+export interface AdminAssignmentSubmission {id:string;assignment_id:string;enrollment_id:string;attempt_number:number;status:string;text_content?:string|null;link_url?:string|null;original_file_name?:string|null;has_file:boolean;is_late:boolean;submitted_at:string;evaluation?:AssignmentEvaluation|null;student:{id:string;full_name:string;email:string};assignment_title:string;course_title:string}
+export interface AdminAnalyticsOverview {summary:{total_students:number;active_learners:number;total_courses:number;published_courses:number;draft_courses:number;archived_courses:number;total_enrollments:number;course_completion_rate:number;average_quiz_score:number;pending_assignment_evaluations:number;video_learning_minutes:number};course_performance:{course_id:string;title:string;status:string;enrollment_count:number;completion_rate:number;average_progress:number}[];recent_activity:{type:string;user_id:string;seconds_delta:number;occurred_at:string;data?:Record<string,unknown>|null}[]}
+export interface AdminCertificate {id:string;certificate_number:string;verification_token:string;student_name:string;course_title:string;status:"issued"|"revoked"|"superseded";issued_at:string;revoked_at?:string|null;revocation_reason?:string|null;events:{type:string;details:Record<string,unknown>;created_at:string}[]}
 
 function saveSession(session: AdminSession) {
   sessionStorage.setItem(ACCESS_KEY, session.access_token);
@@ -140,7 +146,9 @@ export function hasAdminSession() {
 async function parseResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    const err = new Error(typeof body?.detail === "string" ? body.detail : "Request failed. Please try again.") as AdminApiError;
+    const validationDetail = Array.isArray(body?.detail) ? body.detail.map((item: { msg?: string }) => item?.msg).filter(Boolean).join("; ") : "";
+    const message = typeof body?.detail === "string" ? body.detail : validationDetail || "Request failed. Please try again.";
+    const err = new Error(message) as AdminApiError;
     if (Array.isArray(body?.issues)) err.issues = body.issues;
     if (typeof body?.detail === "string") err.detail = body.detail;
     throw err;
@@ -242,3 +250,13 @@ export const reorderLessons = (sectionId: string, payload: ReorderInput) => admi
 export const loadAdminQuiz = (lessonId:string) => adminApiRequest<AdminQuiz|null>(`/api/v1/admin/lessons/${lessonId}/quiz`);
 export const saveAdminQuiz = (lessonId:string,payload:AdminQuizInput) => adminApiRequest<AdminQuiz>(`/api/v1/admin/lessons/${lessonId}/quiz`,{method:"PUT",body:JSON.stringify(payload)});
 export const publishAdminQuiz = (quizId:string) => adminApiRequest<AdminQuiz>(`/api/v1/admin/quizzes/${quizId}/publish`,{method:"POST"});
+export const loadAdminAssignment = (lessonId:string) => adminApiRequest<AdminAssignment|null>(`/api/v1/admin/lessons/${lessonId}/assignment`);
+export const saveAdminAssignment = (lessonId:string,payload:AdminAssignmentInput) => adminApiRequest<AdminAssignment>(`/api/v1/admin/lessons/${lessonId}/assignment`,{method:"PUT",body:JSON.stringify(payload)});
+export const publishAdminAssignment = (assignmentId:string) => adminApiRequest<AdminAssignment>(`/api/v1/admin/assignments/${assignmentId}/publish`,{method:"POST"});
+export const loadAssignmentSubmissions = () => adminApiRequest<AdminAssignmentSubmission[]>("/api/v1/admin/assignment-submissions");
+export const evaluateAssignmentSubmission = (submissionId:string,payload:{marks_awarded:number;decision:"passed"|"failed"|"resubmission_required";feedback?:string}) => adminApiRequest<AdminAssignmentSubmission>(`/api/v1/admin/assignment-submissions/${submissionId}/evaluate`,{method:"POST",body:JSON.stringify(payload)});
+export const loadAdminAnalytics = (days=30) => adminApiRequest<AdminAnalyticsOverview>(`/api/v1/admin/analytics/overview?days=${days}`);
+export const loadAdminCertificates = (search="",status="") => {const query=new URLSearchParams();if(search.trim())query.set("search",search.trim());if(status)query.set("status",status);return adminApiRequest<AdminCertificate[]>(`/api/v1/admin/certificates${query.toString()?`?${query}`:""}`);};
+export const revokeCertificate = (id:string,reason:string) => adminApiRequest<AdminCertificate>(`/api/v1/admin/certificates/${id}/revoke`,{method:"POST",body:JSON.stringify({reason})});
+export const reissueCertificate = (id:string) => adminApiRequest<AdminCertificate>(`/api/v1/admin/certificates/${id}/reissue`,{method:"POST"});
+export async function downloadAssignmentSubmissionFile(submissionId:string,fileName:string){let access=sessionStorage.getItem(ACCESS_KEY);if(!access)access=await refreshAdminAccessToken();let response=await fetch(`${API_URL}/api/v1/admin/assignment-submissions/${submissionId}/file`,{headers:{Authorization:`Bearer ${access}`}});if(response.status===401){access=await refreshAdminAccessToken();response=await fetch(`${API_URL}/api/v1/admin/assignment-submissions/${submissionId}/file`,{headers:{Authorization:`Bearer ${access}`}});}if(!response.ok)throw new Error("Unable to download submission file.");const url=URL.createObjectURL(await response.blob());const anchor=document.createElement("a");anchor.href=url;anchor.download=fileName;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from .database import get_db
 from .dependencies import get_current_admin, get_current_student
 from .models import (CourseEnrollment, CourseLesson, LessonProgress, Quiz, QuizOption, QuizQuestion,
-                     StudentQuizAnswer, StudentQuizAttempt, User)
+                     StudentLearningActivity, StudentQuizAnswer, StudentQuizAttempt, User)
 from .quiz_schemas import QuizSubmitIn, QuizUpsertIn
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Quiz Builder"])
@@ -160,6 +160,9 @@ def submit_attempt(attempt_id: uuid.UUID, payload: QuizSubmitIn,
     attempt.percentage = round(earned * 100 / total) if total else 0
     attempt.passed = attempt.percentage >= quiz.passing_percentage
     attempt.status = "submitted"; attempt.submitted_at = datetime.now(timezone.utc)
+    db.add(StudentLearningActivity(user_id=user.id, enrollment_id=enrollment.id, lesson_id=quiz.lesson_id,
+        activity_type="quiz_submitted", activity_data={"percentage": attempt.percentage,
+            "passed": attempt.passed, "attempt_number": attempt.attempt_number}))
     if attempt.passed:
         progress = db.scalar(select(LessonProgress).where(LessonProgress.enrollment_id == enrollment.id,
             LessonProgress.lesson_id == quiz.lesson_id))

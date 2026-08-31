@@ -1,7 +1,7 @@
 import json
 
 from fastapi import HTTPException, status
-from groq import Groq
+from groq import AuthenticationError, Groq, NotFoundError, RateLimitError
 
 from .career_schemas import RoadmapDraft
 from .config import get_settings
@@ -37,8 +37,29 @@ def generate_roadmap(input_snapshot: dict) -> tuple[RoadmapDraft, str]:
             temperature=0.2,
             max_completion_tokens=4000,
         )
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"Groq model '{settings.groq_model}' is unavailable. "
+                "Set GROQ_MODEL=openai/gpt-oss-20b in backend/.env and restart the backend."
+            ),
+        ) from exc
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Groq rejected the API key. Check GROQ_API_KEY in backend/.env.",
+        ) from exc
+    except RateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Groq Free Tier rate limit reached. Please wait and try again.",
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Roadmap generation failed: {type(exc).__name__}") from exc
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Roadmap generation is temporarily unavailable. Please try again.",
+        ) from exc
     content = response.choices[0].message.content if response.choices else None
     if not content:
         raise HTTPException(status_code=502, detail="The roadmap service returned no usable result")

@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.career_schemas import RoadmapDraft
+from app.resume_builder_schemas import ResumeContent
 from app.models import College, CollegeProgram, Course, CourseLesson, CourseSection, Program, User
 
 
@@ -206,6 +207,32 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
     assert progress.json()["progress_percentage"] == 50
     assert client.get("/api/v1/students/me/roadmaps/current", headers=headers).json()["recommendations"][0]["progress_percentage"] == 50
 
+
+def test_student_generates_edits_scores_and_downloads_ats_resume(monkeypatch) -> None:
+    login = client.post("/api/v1/auth/student/login", json={"email": "arjun@example.com", "password": "StrongPass123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    builder = client.get("/api/v1/students/me/resume-builder", headers=headers)
+    assert builder.status_code == 200, builder.text
+    profile = builder.json()["profile"]
+    profile.update({"headline": "Backend Developer", "github_url": "https://github.com/arjun", "projects": [{"title": "LMS API", "subtitle": "Student project", "bullets": ["Built REST APIs using FastAPI"], "technologies": ["Python", "FastAPI"]}]})
+    assert client.put("/api/v1/students/me/resume-builder", headers=headers, json=profile).status_code == 200
+
+    content = ResumeContent(professional_summary="Computer science student building reliable backend applications with Python and FastAPI.", skills=["Python", "FastAPI"], educations=profile["educations"], experiences=[], projects=profile["projects"], certifications=[], achievements=[], languages=["English"])
+    monkeypatch.setattr("app.resume_builder_router.generate_resume_content", lambda snapshot: (content, "test-groq-model"))
+    created = client.post("/api/v1/students/me/resumes/generate", headers=headers, json={"target_role": "Backend Developer"})
+    assert created.status_code == 201, created.text
+    resume = created.json()
+    assert resume["version"] == 1
+    assert 0 <= resume["ats"]["score"] <= 100
+    assert "contact" in resume
+
+    resume["content"]["skills"].append("SQL")
+    updated = client.put(f"/api/v1/students/me/resumes/{resume['id']}", headers=headers, json={"title": "Backend Resume", "content": resume["content"]})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Backend Resume"
+    pdf = client.get(f"/api/v1/students/me/resumes/{resume['id']}/download", headers=headers)
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
 
 
 

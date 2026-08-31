@@ -12,7 +12,7 @@ from .career_schemas import CareerGoalInput, CareerGoalOut, SkillInput, SkillOut
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_student
-from .models import CareerGoal, Course, CourseEnrollment, CourseLesson, LessonProgress, Skill, StudentResume, StudentRoadmap, StudentSkill, User
+from .models import CareerGoal, Course, CourseEnrollment, CourseLesson, LessonProgress, Skill, StudentLearningActivity, StudentResume, StudentRoadmap, StudentSkill, User
 from .resume_service import detect_skills, extract_resume_text
 from .roadmap_service import PROMPT_VERSION, generate_roadmap
 
@@ -24,6 +24,19 @@ class LessonProgressInput(BaseModel):
     status: str = Field(pattern="^(in_progress|completed)$")
     watched_seconds: int = Field(default=0, ge=0)
     last_position_seconds: int = Field(default=0, ge=0)
+    previous_position_seconds: int | None = Field(default=None, ge=0)
+    duration_seconds: int | None = Field(default=None, ge=1, le=86400)
+
+
+def merge_watched_range(ranges: list, start: int, end: int) -> list[list[int]]:
+    normalized = sorted([[max(0, int(a)), max(0, int(b))] for a, b in ranges if int(b) > int(a)] + [[start, end]])
+    merged: list[list[int]] = []
+    for current_start, current_end in normalized:
+        if not merged or current_start > merged[-1][1] + 1:
+            merged.append([current_start, current_end])
+        else:
+            merged[-1][1] = max(merged[-1][1], current_end)
+    return merged
 
 
 def skill_out(item: StudentSkill) -> SkillOut:
@@ -252,7 +265,10 @@ def enrolled_course(course_id: uuid.UUID, user: User = Depends(get_current_stude
                 "youtube_id": lesson.youtube_id, "article_content": lesson.article_content,
                 "is_preview": lesson.is_preview,
                 "status": progress[lesson.id].status if lesson.id in progress else "not_started",
-                "last_position_seconds": progress[lesson.id].last_position_seconds if lesson.id in progress else 0}
+                "last_position_seconds": progress[lesson.id].last_position_seconds if lesson.id in progress else 0,
+                "watched_seconds": progress[lesson.id].watched_seconds if lesson.id in progress else 0,
+                "video_duration_seconds": progress[lesson.id].video_duration_seconds if lesson.id in progress else None,
+                "watched_percentage": round((progress[lesson.id].watched_seconds or 0) * 100 / progress[lesson.id].video_duration_seconds) if lesson.id in progress and progress[lesson.id].video_duration_seconds else 0}
                 for lesson in section.lessons]}
             for section in course.sections]}
 
@@ -265,17 +281,54 @@ def save_lesson_progress(enrollment_id: uuid.UUID, lesson_id: uuid.UUID, payload
     lesson = db.get(CourseLesson, lesson_id)
     if not enrollment or not lesson or lesson.section.course_id != enrollment.course_id:
         raise HTTPException(status_code=404, detail="Enrollment lesson was not found")
-    if lesson.lesson_type == "quiz" and payload.status == "completed":
-        raise HTTPException(status_code=422, detail="Quiz lessons are completed only by passing the quiz")
+    if lesson.lesson_type in {"video", "quiz", "assignment"} and payload.status == "completed":
+        raise HTTPException(status_code=422, detail=f"{lesson.lesson_type.title()} lessons cannot be completed manually")
     progress = db.scalar(select(LessonProgress).where(
         LessonProgress.enrollment_id == enrollment.id, LessonProgress.lesson_id == lesson.id))
     if not progress:
         progress = LessonProgress(enrollment_id=enrollment.id, lesson_id=lesson.id)
         db.add(progress)
-    progress.status = payload.status
-    progress.watched_seconds = max(progress.watched_seconds or 0, payload.watched_seconds)
-    progress.last_position_seconds = payload.last_position_seconds
-    progress.completed_at = datetime.now(timezone.utc) if payload.status == "completed" else None
+    previous_watched_seconds = progress.watched_seconds or 0
+    previous_status = progress.status
+    auto_completed = False
+    if lesson.lesson_type == "video":
+        if not lesson.youtube_id:
+            raise HTTPException(status_code=422, detail="Video lesson has no YouTube video configured")
+        if payload.duration_seconds is None or payload.previous_position_seconds is None:
+            raise HTTPException(status_code=422, detail="Video progress requires duration and previous position")
+        if payload.last_position_seconds > payload.duration_seconds + 2 or payload.previous_position_seconds > payload.duration_seconds + 2:
+            raise HTTPException(status_code=422, detail="Playback position exceeds video duration")
+        start = min(payload.previous_position_seconds, payload.last_position_seconds)
+        end = max(payload.previous_position_seconds, payload.last_position_seconds)
+        ranges = list(progress.watched_ranges or [])
+        if payload.last_position_seconds >= payload.previous_position_seconds and 0 < end - start <= 20:
+            ranges = merge_watched_range(ranges, start, min(end, payload.duration_seconds))
+        progress.watched_ranges = ranges
+        progress.watched_seconds = sum(end_value - start_value for start_value, end_value in ranges)
+        progress.video_duration_seconds = payload.duration_seconds
+        progress.last_position_seconds = min(payload.last_position_seconds, payload.duration_seconds)
+        watched_percentage = round(progress.watched_seconds * 100 / payload.duration_seconds)
+        if watched_percentage >= 90:
+            auto_completed = progress.status != "completed"
+            progress.status = "completed"
+            progress.completed_at = progress.completed_at or datetime.now(timezone.utc)
+        elif progress.status != "completed":
+            progress.status = "in_progress"
+            progress.completed_at = None
+    else:
+        progress.status = payload.status
+        progress.watched_seconds = max(progress.watched_seconds or 0, payload.watched_seconds)
+        progress.last_position_seconds = payload.last_position_seconds
+        progress.completed_at = datetime.now(timezone.utc) if payload.status == "completed" else None
+    watched_delta = max(0, (progress.watched_seconds or 0) - previous_watched_seconds)
+    if watched_delta:
+        db.add(StudentLearningActivity(user_id=user.id, enrollment_id=enrollment.id, lesson_id=lesson.id,
+            activity_type="video_watched", seconds_delta=watched_delta,
+            activity_data={"position_seconds": progress.last_position_seconds,
+                "watched_percentage": round((progress.watched_seconds or 0) * 100 / progress.video_duration_seconds) if progress.video_duration_seconds else 0}))
+    if progress.status == "completed" and previous_status != "completed":
+        db.add(StudentLearningActivity(user_id=user.id, enrollment_id=enrollment.id, lesson_id=lesson.id,
+            activity_type="lesson_completed", activity_data={"lesson_type": lesson.lesson_type}))
     db.flush()
     lesson_ids = [item.id for section in enrollment.course.sections for item in section.lessons]
     completed = db.scalar(select(func.count(LessonProgress.id)).where(
@@ -285,5 +338,8 @@ def save_lesson_progress(enrollment_id: uuid.UUID, lesson_id: uuid.UUID, payload
     enrollment.status = "completed" if lesson_ids and completed == len(lesson_ids) else "in_progress"
     db.commit()
     return {"lesson_id": lesson.id, "status": progress.status,
+        "watched_seconds": progress.watched_seconds, "last_position_seconds": progress.last_position_seconds,
+        "watched_percentage": round((progress.watched_seconds or 0) * 100 / progress.video_duration_seconds) if progress.video_duration_seconds else 0,
+        "auto_completed": auto_completed,
         "progress_percentage": enrollment.progress_percentage,
         "completed_lessons": completed or 0, "lesson_count": len(lesson_ids)}

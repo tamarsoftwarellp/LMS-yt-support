@@ -100,6 +100,20 @@ async function authorized<T>(path: string, init?: RequestInit, retry = true): Pr
 
 export const studentApiRequest = authorized;
 
+export async function studentDownload(path: string, fileName: string) {
+  let access = sessionStorage.getItem(ACCESS_KEY);
+  if (!access) access = await refreshAccessToken();
+  let response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${access}` } });
+  if (response.status === 401) {
+    access = await refreshAccessToken();
+    response = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${access}` } });
+  }
+  if (!response.ok) throw new Error("Unable to download certificate.");
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = fileName; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const getCurrentStudent = () => authorized<CurrentStudent>("/api/v1/auth/me");
 export const getOnboarding = () => authorized<OnboardingProgress>("/api/v1/students/me/onboarding");
 export const saveOnboardingStep = (stepKey: string, data: Record<string, unknown>, status: "in_progress" | "completed") =>

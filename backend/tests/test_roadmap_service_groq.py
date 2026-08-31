@@ -26,10 +26,10 @@ def test_groq_roadmap_generation_uses_json_mode(monkeypatch) -> None:
 
     monkeypatch.setattr(roadmap_service, "Groq", FakeGroq)
     monkeypatch.setattr(roadmap_service, "get_settings", lambda: SimpleNamespace(
-        groq_api_key="test-key", groq_model="llama-3.1-8b-instant"))
+        groq_api_key="test-key", groq_model="openai/gpt-oss-20b"))
     draft, model = roadmap_service.generate_roadmap({"career_goal": {"target_role": "Backend Developer"}})
 
     assert draft.title == "Backend Developer Roadmap"
-    assert model == "llama-3.1-8b-instant"
+    assert model == "openai/gpt-oss-20b"
     assert captured["response_format"] == {"type": "json_object"}
     assert captured["client"]["api_key"] == "test-key"

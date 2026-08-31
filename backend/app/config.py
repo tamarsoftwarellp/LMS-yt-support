@@ -13,9 +13,12 @@ class Settings(BaseSettings):
     refresh_token_days: int = 7
     # OpenAI is intentionally disabled for now. Groq powers roadmap generation.
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "openai/gpt-oss-20b"
     upload_dir: str = "uploads/resumes"
     max_resume_size_mb: int = 5
+    assignment_upload_dir: str = "uploads/assignments"
+    max_assignment_size_mb: int = 50
+    public_app_url: str = "http://localhost:5173"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

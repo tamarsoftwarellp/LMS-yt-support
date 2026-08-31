@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,8 +11,10 @@ os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import College, CollegeProgram, Course, CourseEnrollment, CourseLesson, CourseSection, Program, User
+from app.models import AssignmentSubmission, Certificate, College, CollegeProgram, Course, CourseEnrollment, CourseLesson, CourseSection, LessonProgress, Program, User
 from app.security import hash_password
+from app.admin_course_router import _extract_youtube_id
+from app.admin_schemas import AdminLessonIn
 
 
 engine = create_engine(
@@ -30,6 +33,13 @@ def override_db():
 
 app.dependency_overrides[get_db] = override_db
 client = TestClient(app)
+
+
+def test_full_youtube_url_with_playlist_query_is_accepted() -> None:
+    url = "https://youtu.be/eWqPsQRgfUc?list=PL8p2l"
+    payload = AdminLessonIn(title="HTTP and REST", lesson_type="video", duration_minutes=15, youtube_id=url)
+    assert payload.youtube_id == url
+    assert _extract_youtube_id(payload.youtube_id) == "eWqPsQRgfUc"
 
 
 @pytest.fixture(autouse=True)
@@ -222,4 +232,177 @@ def test_quiz_scoring_attempt_limit_and_progress() -> None:
         assert enrollment.status == "completed"
 
 
+def test_assignment_submission_evaluation_rbac_and_progress() -> None:
+    seed_admin_user()
+    admin_headers = {"Authorization": f"Bearer {login_admin()}"}
+    with TestingSession() as db:
+        student = User(email="assignment.student@example.com", mobile="9876543288",
+                       password_hash=hash_password("StrongPass123"), role="student")
+        course = Course(title="Assignment Course", slug="assignment-course", description="Project course",
+                        level="Beginner", duration_hours=3, skills=["Projects"], status="published")
+        db.add_all([student, course]); db.flush()
+        section = CourseSection(course_id=course.id, title="Project", sequence=1)
+        db.add(section); db.flush()
+        lesson = CourseLesson(section_id=section.id, title="Build a Project", lesson_type="assignment",
+                              duration_minutes=60, sequence=1)
+        db.add(lesson); db.flush()
+        enrollment = CourseEnrollment(user_id=student.id, course_id=course.id)
+        db.add(enrollment); db.commit()
+        lesson_id, enrollment_id = lesson.id, enrollment.id
 
+    configured = client.put(f"/api/v1/admin/lessons/{lesson_id}/assignment", headers=admin_headers, json={
+        "instructions": "Submit a project explanation", "maximum_marks": 50, "passing_marks": 25,
+        "maximum_attempts": 2, "allowed_submission_types": ["text", "link"],
+        "allowed_file_extensions": [], "maximum_file_size_mb": 10, "allow_late_submission": False,
+        "allow_resubmission": True
+    })
+    assert configured.status_code == 200, configured.text
+    assignment_id = configured.json()["id"]
+    assert client.post(f"/api/v1/admin/assignments/{assignment_id}/publish", headers=admin_headers).status_code == 200
+
+    login = client.post("/api/v1/auth/student/login", json={"email": "assignment.student@example.com", "password": "StrongPass123"})
+    student_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert client.get("/api/v1/admin/assignment-submissions", headers=student_headers).status_code == 403
+    opened = client.get(f"/api/v1/students/me/lessons/{lesson_id}/assignment", headers=student_headers)
+    assert opened.status_code == 200, opened.text
+    manual = client.put(f"/api/v1/students/me/enrollments/{enrollment_id}/lessons/{lesson_id}/progress",
+        headers=student_headers, json={"status": "completed", "watched_seconds": 0, "last_position_seconds": 0})
+    assert manual.status_code == 422
+    submitted = client.post(f"/api/v1/students/me/assignments/{assignment_id}/submissions", headers=student_headers,
+        data={"status": "submitted", "text_content": "My completed project", "link_url": "https://example.com/project"})
+    assert submitted.status_code == 201, submitted.text
+    submission_id = submitted.json()["id"]
+
+    listed = client.get("/api/v1/admin/assignment-submissions", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    assert any(item["id"] == submission_id for item in listed.json())
+    invalid_pass = client.post(f"/api/v1/admin/assignment-submissions/{submission_id}/evaluate", headers=admin_headers,
+        json={"marks_awarded": 20, "decision": "passed", "feedback": "Below pass marks"})
+    assert invalid_pass.status_code == 422
+    evaluated = client.post(f"/api/v1/admin/assignment-submissions/{submission_id}/evaluate", headers=admin_headers,
+        json={"marks_awarded": 45, "decision": "passed", "feedback": "Good project"})
+    assert evaluated.status_code == 200, evaluated.text
+    assert evaluated.json()["evaluation"]["decision"] == "passed"
+    with TestingSession() as db:
+        enrollment = db.get(CourseEnrollment, enrollment_id)
+        submission = db.get(AssignmentSubmission, uuid.UUID(submission_id))
+        assert enrollment.progress_percentage == 100
+        assert enrollment.status == "completed"
+        assert submission.status == "evaluated"
+
+
+def test_youtube_progress_resume_seek_guard_and_auto_completion() -> None:
+    with TestingSession() as db:
+        student = User(email="video.student@example.com", mobile="9876543277",
+                       password_hash=hash_password("StrongPass123"), role="student")
+        course = Course(title="YouTube Progress Course", slug="youtube-progress-course", description="Video course",
+                        level="Beginner", duration_hours=1, skills=["Video"], status="published")
+        db.add_all([student, course]); db.flush()
+        section = CourseSection(course_id=course.id, title="Videos", sequence=1)
+        db.add(section); db.flush()
+        lesson = CourseLesson(section_id=section.id, title="YouTube Lesson", lesson_type="video",
+                              duration_minutes=2, sequence=1, youtube_id="dQw4w9WgXcQ")
+        db.add(lesson); db.flush()
+        enrollment = CourseEnrollment(user_id=student.id, course_id=course.id)
+        db.add(enrollment); db.commit()
+        course_id, lesson_id, enrollment_id = course.id, lesson.id, enrollment.id
+
+    login = client.post("/api/v1/auth/student/login", json={"email": "video.student@example.com", "password": "StrongPass123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    endpoint = f"/api/v1/students/me/enrollments/{enrollment_id}/lessons/{lesson_id}/progress"
+    manual = client.put(endpoint, headers=headers, json={"status": "completed", "last_position_seconds": 90})
+    assert manual.status_code == 422
+
+    first = client.put(endpoint, headers=headers, json={"status": "in_progress", "previous_position_seconds": 0,
+        "last_position_seconds": 10, "duration_seconds": 100})
+    assert first.status_code == 200, first.text
+    assert first.json()["watched_seconds"] == 10
+    seek = client.put(endpoint, headers=headers, json={"status": "in_progress", "previous_position_seconds": 10,
+        "last_position_seconds": 80, "duration_seconds": 100})
+    assert seek.status_code == 200
+    assert seek.json()["watched_seconds"] == 10
+    assert seek.json()["last_position_seconds"] == 80
+
+    previous = 10
+    result = None
+    for current in range(20, 91, 10):
+        result = client.put(endpoint, headers=headers, json={"status": "in_progress",
+            "previous_position_seconds": previous, "last_position_seconds": current, "duration_seconds": 100})
+        assert result.status_code == 200, result.text
+        previous = current
+    assert result.json()["status"] == "completed"
+    assert result.json()["watched_percentage"] == 90
+    assert result.json()["auto_completed"] is True
+    course = client.get(f"/api/v1/students/me/courses/{course_id}", headers=headers)
+    video = course.json()["sections"][0]["lessons"][0]
+    assert video["last_position_seconds"] == 90
+    assert video["watched_percentage"] == 90
+    with TestingSession() as db:
+        enrollment = db.get(CourseEnrollment, enrollment_id)
+        assert enrollment.progress_percentage == 100
+        assert enrollment.status == "completed"
+
+    dashboard = client.get("/api/v1/students/me/dashboard", headers=headers)
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["summary"]["completed_lessons"] >= 1
+    assert dashboard.json()["summary"]["learning_minutes"] >= 1
+    assert len(dashboard.json()["weekly_activity"]) == 7
+    assert client.get("/api/v1/admin/analytics/overview", headers=headers).status_code == 403
+
+    seed_admin_user()
+    admin_headers = {"Authorization": f"Bearer {login_admin()}"}
+    overview = client.get("/api/v1/admin/analytics/overview", headers=admin_headers)
+    assert overview.status_code == 200, overview.text
+    assert overview.json()["summary"]["total_students"] >= 1
+    assert overview.json()["summary"]["video_learning_minutes"] >= 1
+
+
+def test_certificate_issue_pdf_verify_revoke_and_reissue() -> None:
+    seed_admin_user()
+    with TestingSession() as db:
+        student = User(email="certificate.student@example.com", mobile="9876543266",
+                       password_hash=hash_password("StrongPass123"), role="student")
+        course = Course(title="Certificate Course", slug="certificate-course", description="Completed course",
+                        level="Beginner", duration_hours=1, skills=["Learning"], status="published",
+                        instructor_name="EduConnect Instructor")
+        db.add_all([student, course]); db.flush()
+        section = CourseSection(course_id=course.id, title="Module", sequence=1)
+        db.add(section); db.flush()
+        lesson = CourseLesson(section_id=section.id, title="Complete Me", lesson_type="article",
+                              duration_minutes=10, sequence=1, article_content="Done")
+        db.add(lesson); db.flush()
+        enrollment = CourseEnrollment(user_id=student.id, course_id=course.id, status="completed", progress_percentage=100)
+        db.add(enrollment); db.flush()
+        db.add(LessonProgress(enrollment_id=enrollment.id, lesson_id=lesson.id, status="completed"))
+        db.commit(); enrollment_id = enrollment.id
+
+    login = client.post("/api/v1/auth/student/login", json={"email": "certificate.student@example.com", "password": "StrongPass123"})
+    student_headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    issued = client.post(f"/api/v1/students/me/enrollments/{enrollment_id}/certificate", headers=student_headers)
+    assert issued.status_code == 201, issued.text
+    certificate = issued.json(); certificate_id = certificate["id"]
+    duplicate = client.post(f"/api/v1/students/me/enrollments/{enrollment_id}/certificate", headers=student_headers)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["id"] == certificate_id
+    download = client.get(f"/api/v1/students/me/certificates/{certificate_id}/download", headers=student_headers)
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "application/pdf"
+    assert download.content.startswith(b"%PDF")
+    verified = client.get(f"/api/v1/certificates/verify/{certificate['verification_token']}")
+    assert verified.status_code == 200 and verified.json()["is_valid"] is True
+    assert "email" not in verified.json()
+    assert client.get("/api/v1/admin/certificates", headers=student_headers).status_code == 403
+
+    admin_headers = {"Authorization": f"Bearer {login_admin()}"}
+    listed = client.get("/api/v1/admin/certificates?search=Certificate+Course", headers=admin_headers)
+    assert listed.status_code == 200 and any(item["id"] == certificate_id for item in listed.json())
+    revoked = client.post(f"/api/v1/admin/certificates/{certificate_id}/revoke", headers=admin_headers,
+                          json={"reason": "Certificate details require correction"})
+    assert revoked.status_code == 200
+    assert client.get(f"/api/v1/certificates/verify/{certificate['verification_token']}").json()["is_valid"] is False
+    assert client.get(f"/api/v1/students/me/certificates/{certificate_id}/download", headers=student_headers).status_code == 409
+    reissued = client.post(f"/api/v1/admin/certificates/{certificate_id}/reissue", headers=admin_headers)
+    assert reissued.status_code == 201, reissued.text
+    assert reissued.json()["certificate_number"] != certificate["certificate_number"]
+    with TestingSession() as db:
+        assert len(db.scalars(select(Certificate).where(Certificate.enrollment_id == enrollment_id)).all()) == 2

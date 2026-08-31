@@ -48,7 +48,8 @@ class AdminLessonIn(BaseModel):
     lesson_type: LessonType = "article"
     duration_minutes: int = Field(gt=0)
     sequence: int | None = Field(default=None, gt=0)
-    youtube_id: str | None = Field(default=None, max_length=30)
+    # Accept a raw 11-character ID or a full YouTube URL. The router stores only the extracted ID.
+    youtube_id: str | None = Field(default=None, max_length=500)
     article_content: str | None = None
     is_preview: bool = False
 

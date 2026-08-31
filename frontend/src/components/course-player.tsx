@@ -5,7 +5,7 @@ import {
   CheckCircle2, Lock, ChevronDown, Check, Clock, ChevronLeft, ChevronRight,
   FileText, HelpCircle, Paperclip, Video, AlignLeft, List, MessageSquare,
   BookOpen, Download, Star, Users, ThumbsUp, Send, X,
-  Settings, Maximize2, PanelLeftClose, PanelLeftOpen,
+  Settings, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -20,6 +20,8 @@ export interface Lesson {
   locked?: boolean;
   isPreview?: boolean;
   youtubeId?: string; // YouTube video ID for this lesson, e.g. "dQw4w9WgXcQ"
+  resumePosition?: number;
+  watchedPercentage?: number;
 }
 
 export interface Section {
@@ -86,7 +88,7 @@ function loadYouTubeApi(): Promise<void> {
 }
 
 // ─── VIDEO PLAYER (YouTube-backed, module-wise) ────────────────────────────────
-function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string; onEnded?: () => void }) {
+function VideoPlayer({ lesson, color, onEnded, onProgress, onAutoCompleted }: { lesson: Lesson; color: string; onEnded?: () => void; onProgress?: (previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; onAutoCompleted?:()=>void }) {
   const totalSecsFallback = (parseInt(lesson.duration) || 10) * 60;
   const [current, setCurrent] = useState(0);
   const [totalSecs, setTotalSecs] = useState(totalSecsFallback);
@@ -97,13 +99,26 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
   const [muted, setMuted] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [showSpeed, setShowSpeed] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [quality, setQuality] = useState("auto");
+  const [qualityLevels, setQualityLevels] = useState<string[]>([]);
+  const [captions, setCaptions] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [ready, setReady] = useState(false);
+  const [saveState,setSaveState]=useState<"idle"|"saving"|"saved"|"error">("idle");
+  const [watchedPercentage,setWatchedPercentage]=useState(lesson.watchedPercentage||0);
   const barRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEndedRef = useRef(onEnded);
+  const onProgressRef=useRef(onProgress);const onAutoCompletedRef=useRef(onAutoCompleted);
+  const currentRef=useRef(lesson.resumePosition||0);const durationRef=useRef(totalSecsFallback);const lastReportedRef=useRef(lesson.resumePosition||0);const completionReportedRef=useRef(lesson.completed);
   onEndedRef.current = onEnded;
+  onProgressRef.current=onProgress;onAutoCompletedRef.current=onAutoCompleted;
+
+  const reportProgress=async(position?:number)=>{const callback=onProgressRef.current;const duration=Math.round(durationRef.current);const currentPosition=Math.max(0,Math.round(position??currentRef.current));const previousPosition=Math.max(0,Math.round(lastReportedRef.current));if(!callback||!duration||Math.abs(currentPosition-previousPosition)<1)return undefined;lastReportedRef.current=currentPosition;setSaveState("saving");try{const result=await callback(previousPosition,currentPosition,duration);setWatchedPercentage(result.watched_percentage);setSaveState("saved");if(result.status==="completed"&&!completionReportedRef.current){completionReportedRef.current=true;onAutoCompletedRef.current?.();}return result;}catch{lastReportedRef.current=previousPosition;setSaveState("error");return undefined;}};
 
   // create the YT player once, then swap videos by id as the lesson changes
   useEffect(() => {
@@ -121,22 +136,24 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
             onReady: (e: any) => {
               setReady(true);
               e.target.setVolume(volume);
-              setTotalSecs(e.target.getDuration() || totalSecsFallback);
+              const duration=e.target.getDuration() || totalSecsFallback;setTotalSecs(duration);durationRef.current=duration;
+              const levels=e.target.getAvailableQualityLevels?.()||[];setQualityLevels(levels);
+              const resume=Math.min(lesson.resumePosition||0,Math.max(0,duration-2));if(resume>0){e.target.seekTo(resume,true);setCurrent(resume);currentRef.current=resume;}
             },
             onStateChange: (e: any) => {
               const YT = window.YT.PlayerState;
               if (e.data === YT.PLAYING) setPlaying(true);
-              if (e.data === YT.PAUSED) setPlaying(false);
+              if (e.data === YT.PAUSED) {setPlaying(false);void reportProgress(e.target.getCurrentTime?.());}
               if (e.data === YT.ENDED) {
                 setPlaying(false);
-                onEndedRef.current?.();
+                void reportProgress(e.target.getDuration?.()).then(result=>{if(completionReportedRef.current||result?.status==="completed")onEndedRef.current?.();});
               }
             },
           },
         });
       } else {
-        playerRef.current.loadVideoById(lesson.youtubeId);
-        setCurrent(0);
+        playerRef.current.loadVideoById({videoId:lesson.youtubeId,startSeconds:lesson.resumePosition||0});
+        setCurrent(lesson.resumePosition||0);currentRef.current=lesson.resumePosition||0;lastReportedRef.current=lesson.resumePosition||0;setWatchedPercentage(lesson.watchedPercentage||0);completionReportedRef.current=lesson.completed;
         setPlaying(false);
       }
     });
@@ -147,8 +164,10 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
 
   // clean up the player on unmount
   useEffect(() => {
-    return () => { playerRef.current?.destroy?.(); playerRef.current = null; };
+    return () => {void reportProgress(playerRef.current?.getCurrentTime?.());playerRef.current?.destroy?.(); playerRef.current = null;};
   }, []);
+
+  useEffect(()=>{const update=()=>setFullscreen(document.fullscreenElement===containerRef.current);document.addEventListener("fullscreenchange",update);return()=>document.removeEventListener("fullscreenchange",update);},[]);
 
   // poll current time / buffered % while playing
   useEffect(() => {
@@ -156,8 +175,8 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
       pollRef.current = setInterval(() => {
         const p = playerRef.current;
         if (!p) return;
-        setCurrent(p.getCurrentTime?.() ?? 0);
-        setTotalSecs(p.getDuration?.() || totalSecsFallback);
+        const next=p.getCurrentTime?.() ?? 0;const duration=p.getDuration?.() || totalSecsFallback;setCurrent(next);currentRef.current=next;setTotalSecs(duration);durationRef.current=duration;
+        if(next-lastReportedRef.current>=10)void reportProgress(next);
         const buf = p.getVideoLoadedFraction?.();
         if (typeof buf === "number") setBuffered(buf * 100);
       }, 500);
@@ -207,13 +226,19 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
     playerRef.current?.setPlaybackRate(s);
   };
 
+  const changeQuality=(value:string)=>{setQuality(value);if(value!=="auto")playerRef.current?.setPlaybackQuality?.(value);setShowSettings(false);};
+  const toggleCaptions=()=>{const next=!captions;const player=playerRef.current;if(player){if(next){player.loadModule?.("captions");player.setOption?.("captions","track",{});}else player.unloadModule?.("captions");}setCaptions(next);};
+  const toggleFullscreen=async()=>{const element=containerRef.current;if(!element)return;try{if(document.fullscreenElement)await document.exitFullscreen();else await element.requestFullscreen();}catch{setSaveState("error");}};
+
   const pct = totalSecs ? (current / totalSecs) * 100 : 0;
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
   return (
-    <div className="relative bg-black rounded-xl overflow-hidden group">
+    <div ref={containerRef} className="relative bg-black rounded-xl overflow-hidden group fullscreen:rounded-none fullscreen:w-screen fullscreen:h-screen fullscreen:flex fullscreen:items-center fullscreen:justify-center">
       {/* video canvas */}
-      <div className="relative aspect-video" style={{ background: `linear-gradient(135deg, #0a0a0a 0%, #111827 100%)` }}>
+      <div className="relative w-full aspect-video" style={{ background: `linear-gradient(135deg, #0a0a0a 0%, #111827 100%)` }}>
+        {lesson.resumePosition&&!playing&&current===lesson.resumePosition?<div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-black/70 text-white/80 text-[11px]">Resumed at {fmt(lesson.resumePosition)}</div>:null}
+        <div className={`absolute top-3 left-3 z-10 px-2.5 py-1 rounded-lg text-[10.5px] ${saveState==="error"?"bg-red-600 text-white":"bg-black/70 text-white/70"}`}>{saveState==="saving"?"Saving…":saveState==="error"?"Save failed · retrying":"Saved"} · {watchedPercentage}% watched</div>
         {lesson.youtubeId ? (
           <>
             {/* real YouTube iframe, native controls hidden — driven entirely by the bar below */}
@@ -299,11 +324,14 @@ function VideoPlayer({ lesson, color, onEnded }: { lesson: Lesson; color: string
             )}
           </div>
 
-          <button className="text-white/70 hover:text-white transition-colors">
-            <Settings size={14} />
-          </button>
-          <button className="text-white/70 hover:text-white transition-colors">
-            <Maximize2 size={14} />
+          <div className="relative">
+            <button aria-label="Video settings" className={`text-white/70 hover:text-white transition-colors ${showSettings?"text-white":""}`} onClick={()=>{setQualityLevels(playerRef.current?.getAvailableQualityLevels?.()||[]);setShowSettings(value=>!value);setShowSpeed(false);setShowVolume(false);}}>
+              <Settings size={14} />
+            </button>
+            {showSettings&&<div className="absolute bottom-8 right-0 w-52 bg-black/95 rounded-xl p-2 shadow-xl border border-white/10 text-[11px] text-white"><p className="px-2 py-1 text-white/45 uppercase tracking-wider">Quality</p><button onClick={()=>changeQuality("auto")} className={`w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 ${quality==="auto"?"text-white font-semibold":"text-white/70"}`}><span>Auto</span>{quality==="auto"&&<Check size={12}/>}</button>{qualityLevels.map(level=><button key={level} onClick={()=>changeQuality(level)} className={`w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 ${quality===level?"text-white font-semibold":"text-white/70"}`}><span>{level.replace("hd","HD ").replace("large","480p").replace("medium","360p").replace("small","240p")}</span>{quality===level&&<Check size={12}/>}</button>)}<div className="my-1 border-t border-white/10"/><button onClick={toggleCaptions} className="w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 text-white/70"><span>Captions</span><span className={captions?"text-emerald-400":"text-white/40"}>{captions?"On":"Off"}</span></button></div>}
+          </div>
+          <button aria-label={fullscreen?"Exit fullscreen":"Enter fullscreen"} className="text-white/70 hover:text-white transition-colors" onClick={toggleFullscreen}>
+            {fullscreen?<Minimize2 size={14}/>:<Maximize2 size={14} />}
           </button>
         </div>
       </div>
@@ -625,7 +653,7 @@ function AssignmentView({ lesson }: { lesson: Lesson }) {
 }
 
 // ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
-export function CoursePlayer({ course, onBack, onLessonComplete, renderQuiz }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
+export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
   const allLessons = course.sections.flatMap(s => s.lessons);
   const firstIncomplete = allLessons.find(l => !l.completed && !l.locked) ?? allLessons[0];
   const [activeLesson, setActiveLesson] = useState<Lesson>(firstIncomplete);
@@ -641,12 +669,12 @@ export function CoursePlayer({ course, onBack, onLessonComplete, renderQuiz }: {
   const allUnlocked = allLessons.filter(l => !l.locked);
   const curIdx = allUnlocked.findIndex(l => l.id === activeLesson.id);
 
-  const markDone = () => {
+  const markDone = (advance=true) => {
     if (!completedIds.includes(activeLesson.id)) {
       setCompletedIds(ids => [...ids, activeLesson.id]);
-      if (activeLesson.type !== "quiz") void onLessonComplete?.(activeLesson.id);
+      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment") void onLessonComplete?.(activeLesson.id);
     }
-    if (curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
+    if (advance&&curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
   };
 
   const Icon = lessonIcon[activeLesson.type];
@@ -768,19 +796,19 @@ export function CoursePlayer({ course, onBack, onLessonComplete, renderQuiz }: {
             </h2>
 
             {/* lesson content */}
-            {activeLesson.type === "video" && <VideoPlayer lesson={activeLesson} color={course.color} onEnded={markDone} />}
+            {activeLesson.type === "video" && <VideoPlayer lesson={activeLesson} color={course.color} onEnded={()=>markDone(true)} onAutoCompleted={()=>markDone(false)} onProgress={(previous,current,duration)=>onVideoProgress?.(activeLesson.id,previous,current,duration)??Promise.resolve({status:"in_progress",watched_percentage:0})} />}
             {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
-            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, markDone) : <QuizView onComplete={markDone} />)}
-            {activeLesson.type === "assignment" && <AssignmentView lesson={activeLesson} />}
+            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView onComplete={()=>markDone(true)} />)}
+            {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView lesson={activeLesson} />)}
 
             {/* mark complete */}
-            {activeLesson.type !== "quiz" && (
+            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && (
               completedIds.includes(activeLesson.id) ? (
                 <div className="mt-5 flex items-center justify-center gap-2 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-[13.5px] font-semibold">
                   <CheckCircle2 size={16} /> Lesson completed!
                 </div>
               ) : (
-                <button onClick={markDone}
+                <button onClick={()=>markDone(true)}
                   className="mt-5 w-full py-3 text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
                   style={{ background: course.color }}>
                   <Check size={16} /> Mark as Complete & Continue
