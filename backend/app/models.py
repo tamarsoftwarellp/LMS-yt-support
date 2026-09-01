@@ -13,8 +13,27 @@ class College(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(180), unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    contact_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     programs: Mapped[list["CollegeProgram"]] = relationship(back_populates="college", cascade="all, delete-orphan")
+
+
+class InstitutionStatusHistory(Base):
+    __tablename__ = "institution_status_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(30))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    performed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    college: Mapped[College] = relationship()
 
 
 class Program(Base):
@@ -46,9 +65,11 @@ class User(Base):
     mobile: Mapped[str] = mapped_column(String(15), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), default="student", nullable=False)
+    college_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("colleges.id"), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     student_profile: Mapped["StudentProfile"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    college: Mapped[College | None] = relationship(foreign_keys=[college_id])
 
 
 class StudentProfile(Base):

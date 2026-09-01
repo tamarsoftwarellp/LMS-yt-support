@@ -17,9 +17,11 @@ class AdminMeOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
     mobile: str
-    role: Literal["admin"]
+    role: Literal["admin", "super_admin"]
     is_active: bool
     created_at: datetime
+    college_id: uuid.UUID | None = None
+    college_name: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

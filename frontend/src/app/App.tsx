@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CollegePortal } from "../components/portals";
+import { CollegeRegister } from "../components/college-register";
 import { StudentCareerPortal } from "../components/student-career-portal";
 import { HomePage } from "../components/home";
 import { FSDPage } from "../components/fsd";
@@ -14,7 +14,7 @@ import { hasAdminSession, logoutAdmin } from "../api/admin-lms";
 import { CertificateVerification } from "../components/certificate-verification";
 
 type Mode = "home" | "college" | "student" | "fsd" | "srs" | "student-login" | "admin-login" | "student-register" | "super-admin" | "project-prompt" | "lms" | "admin-lms";
-const MODE_PATH:Record<Mode,string>={home:"/",college:"/college",student:"/student/dashboard",fsd:"/programs/full-stack-development",srs:"/resources/software-requirements","student-login":"/student/login","admin-login":"/admin/login","student-register":"/student/register","super-admin":"/super-admin","project-prompt":"/resources/project-prompt",lms:"/lms","admin-lms":"/admin/dashboard"};
+const MODE_PATH:Record<Mode,string>={home:"/",college:"/college",student:"/student/dashboard",fsd:"/programs/full-stack-development",srs:"/resources/software-requirements","student-login":"/student/login","admin-login":"/admin/login","student-register":"/student/register","super-admin":"/super-admin","project-prompt":"/resources/project-prompt",lms:"/lms/dashboard","admin-lms":"/admin/dashboard"};
 function modeFromPath(pathname:string):Mode {
   const path=pathname.length>1?pathname.replace(/\/+$/,""):pathname;
   const aliases:Record<string,Mode>={"/auth/student/login":"student-login","/auth/student/register":"student-register","/auth/admin/login":"admin-login"};
@@ -40,26 +40,33 @@ export default function App() {
   const navigate=(next:Mode,path=MODE_PATH[next])=>{if(window.location.pathname!==path)window.history.pushState({},"",path);setMode(next);window.scrollTo({top:0,behavior:"smooth"});};
   useEffect(()=>{const restore=()=>setMode(modeFromPath(window.location.pathname));window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);},[]);
   useEffect(()=>{const legacy:Record<string,string>={"/auth/student/login":MODE_PATH["student-login"],"/auth/student/register":MODE_PATH["student-register"],"/auth/admin/login":MODE_PATH["admin-login"]};const clean=window.location.pathname.length>1?window.location.pathname.replace(/\/+$/,""):window.location.pathname;const canonical=legacy[clean]||clean;if(canonical!==window.location.pathname)window.history.replaceState({},"",canonical);},[]);
-  useEffect(()=>{const labels:Record<Mode,string>={home:"Home",college:"College Portal",student:"Student Portal",fsd:"Full Stack Development",srs:"Software Requirements","student-login":"Student Login","admin-login":"Admin Login","student-register":"Student Registration","super-admin":"Super Admin","project-prompt":"Project Prompt",lms:"Learning Management","admin-lms":"Admin LMS"};if(mode!=="student"&&mode!=="admin-lms")document.title=`${labels[mode]} | EduConnect`;},[mode]);
+  useEffect(()=>{const labels:Record<Mode,string>={home:"Home",college:"Register Institution",student:"Student Portal",fsd:"Full Stack Development",srs:"Software Requirements","student-login":"Student Login","admin-login":"Admin Login","student-register":"Student Registration","super-admin":"Super Admin","project-prompt":"Project Prompt",lms:"Learning Management","admin-lms":"Admin LMS"};if(mode!=="student"&&mode!=="admin-lms")document.title=`${labels[mode]} | EduConnect`;},[mode]);
 
   if (verificationToken) return <CertificateVerification token={decodeURIComponent(verificationToken)} onHome={()=>navigate("home")}/>;
-  if (mode === "lms")              return <LMSModule onBack={() => navigate("home")} />;
+  if (mode === "lms") {
+    if (!hasStudentSession()) return <StudentLogin onBack={() => navigate("home")} onRegister={() => navigate("student-register")} onSuccess={() => navigate("lms")} />;
+    return <LMSModule onBack={() => navigate("student")} onLogout={async () => { await logoutStudent(); navigate("home"); }} />;
+  }
   if (mode === "project-prompt")   return <ProjectPromptPage onBack={() => navigate("home")} />;
   if (mode === "srs")              return <SRSPage onBack={() => navigate("fsd")} />;
   if (mode === "fsd")              return <FSDPage onBack={() => navigate("home")} onPrompt={() => navigate("project-prompt")} onSRS={() => navigate("srs")} />;
   if (mode === "student-login")    return <StudentLogin onBack={() => navigate("home")} onRegister={() => navigate("student-register")} onSuccess={() => navigate("student")} />;
-  if (mode === "admin-login")      return <AdminLogin onBack={() => navigate("home")} onSuccess={() => navigate("admin-lms")} />;
+  if (mode === "admin-login")      return <AdminLogin onBack={() => navigate("home")} onSuccess={(role) => navigate(role === "super_admin" ? "super-admin" : "admin-lms")} />;
   if (mode === "student-register") return <StudentRegister onBack={() => navigate("home")} onLogin={() => navigate("student-login")} onSuccess={() => navigate("student-login")} />;
-  if (mode === "super-admin")      return <SuperAdminPanel onBack={() => navigate("home")} />;
+  if (mode === "super-admin") {
+    if (!hasAdminSession()) return <AdminLogin onBack={() => navigate("home")} onSuccess={(role) => navigate(role === "super_admin" ? "super-admin" : "admin-lms")} />;
+    const leaveSuperAdmin=async()=>{await logoutAdmin();navigate("home");};
+    return <SuperAdminPanel onBack={leaveSuperAdmin} onLogout={leaveSuperAdmin} />;
+  }
   if (mode === "home")             return <HomePage onCollege={() => navigate("college")} onStudent={() => navigate("student")} onFSD={() => navigate("fsd")} onStudentLogin={() => navigate("student-login")} onAdminLogin={() => navigate("admin-login")} onStudentRegister={() => navigate("student-register")} onLMS={() => navigate("lms")} />;
   if (mode === "student") {
     if (!hasStudentSession()) return <StudentLogin onBack={() => navigate("home")} onRegister={() => navigate("student-register")} onSuccess={() => navigate("student")} />;
-    return <StudentCareerPortal onLogout={async () => { await logoutStudent(); navigate("home"); }} />;
+    return <StudentCareerPortal onLogout={async () => { await logoutStudent(); navigate("home"); }} onOpenLMS={(courseId) => navigate("lms", courseId ? `/lms/courses/${courseId}` : undefined)} />;
   }
   if (mode === "admin-lms") {
-    if (!hasAdminSession()) return <AdminLogin onBack={() => navigate("home")} onSuccess={() => navigate("admin-lms")} />;
+    if (!hasAdminSession()) return <AdminLogin onBack={() => navigate("home")} onSuccess={(role) => navigate(role === "super_admin" ? "super-admin" : "admin-lms")} />;
     const leaveAdmin=async()=>{await logoutAdmin();navigate("home");};
     return <LMSAdminSection onBack={leaveAdmin} onLogout={leaveAdmin} />;
   }
-  return <CollegePortal onSwitch={() => navigate("student")} onHome={() => navigate("home")} />;
+  return <CollegeRegister onBack={() => navigate("home")} onLogin={() => navigate("admin-login")} />;
 }

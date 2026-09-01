@@ -36,14 +36,28 @@ def _profile_out(profile: ResumeBuilderProfile, user: User, db: Session) -> dict
         "auto":{"full_name":student.full_name if student else user.email,"email":user.email,"mobile":user.mobile,"college":student.college.name if student else None,"program":student.program.name if student else None,"current_year":student.current_year if student else None,"skills":skills,"completed_courses":completed,"earned_certificates":earned}}
 
 
+def _sync_progress(item: ResumeBuilderProfile, user: User, db: Session) -> ResumeBuilderProfile:
+    completed=[row.course.title for row in db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id==user.id,CourseEnrollment.status=="completed"))]
+    issued={row.course_title for row in db.scalars(select(Certificate).where(Certificate.student_id==user.id,Certificate.status=="issued"))}
+    existing={(entry or {}).get("title") for entry in (item.certifications or [])}
+    entries=list(item.certifications or []);changed=False
+    for title in completed:
+        if title in existing:continue
+        entries.append({"title":title,"subtitle":"EduConnect Certified" if title in issued else "Completed via EduConnect LMS",
+            "start_date":None,"end_date":None,"location":None,"description":None,"bullets":[],"technologies":[],"url":None})
+        existing.add(title);changed=True
+    if changed:item.certifications=entries;db.commit();db.refresh(item)
+    return item
+
+
 def _get_or_create(user: User, db: Session) -> ResumeBuilderProfile:
     item=db.scalar(select(ResumeBuilderProfile).where(ResumeBuilderProfile.user_id==user.id))
-    if item:return item
+    if item:return _sync_progress(item,user,db)
     student=user.student_profile
     education=[]
     if student: education=[{"title":student.program.name,"subtitle":student.college.name,"start_date":None,"end_date":student.current_year,"location":None,"description":None,"bullets":[],"technologies":[],"url":None}]
     item=ResumeBuilderProfile(user_id=user.id,educations=education,experiences=[],projects=[],certifications=[],achievements=[],languages=[])
-    db.add(item);db.commit();db.refresh(item);return item
+    db.add(item);db.commit();db.refresh(item);return _sync_progress(item,user,db)
 
 
 def _snapshot(profile: ResumeBuilderProfile,user: User,db: Session,target_role:str)->dict:

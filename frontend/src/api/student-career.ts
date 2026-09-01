@@ -7,8 +7,8 @@ export interface ResumeInfo { id: string; file_name: string; file_size: number; 
 export interface Recommendation { course_id: string; phase_sequence: number; title: string; description: string; level: string; duration_hours: number; matched_skills: string[]; match_score: number; reason: string; is_enrolled?: boolean; enrollment_id?: string | null; progress_percentage?: number }
 export interface Roadmap { id: string; title: string; summary: string; duration_weeks: number; skill_gaps: { skill: string; priority: string; reason: string }[]; phases: { sequence: number; title: string; duration_weeks: number; objective: string; skills: string[]; milestones: string[]; projects: { title: string; description: string }[] }[]; recommendations: Recommendation[]; version: number; generated_at: string }
 export interface Enrollment { id: string; course_id: string; title: string; description: string; level: string; duration_hours: number; status: string; progress_percentage: number; lesson_count: number; completed_lessons: number; enrolled_at: string }
-export interface CourseLesson { id:string; title:string; lesson_type:"video"|"article"|"quiz"|"assignment"; duration_minutes:number; sequence:number; youtube_id?:string|null; article_content?:string|null; is_preview:boolean; status:string; last_position_seconds:number;watched_seconds:number;video_duration_seconds?:number|null;watched_percentage:number }
-export interface EnrolledCourse { id:string; title:string; description:string; level:string; duration_hours:number; skills:string[]; enrollment_id:string; progress_percentage:number; sections:{id:string;title:string;sequence:number;lessons:CourseLesson[]}[] }
+export interface CourseLesson { id:string; title:string; lesson_type:"video"|"article"|"quiz"|"assignment"; duration_minutes:number; sequence:number; youtube_id?:string|null; article_content?:string|null; is_preview:boolean; locked:boolean; status:string; last_position_seconds:number;watched_seconds:number;video_duration_seconds?:number|null;watched_percentage:number }
+export interface EnrolledCourse { id:string; title:string; description:string; level:string; duration_hours:number; skills:string[]; is_enrolled:boolean; enrollment_id:string|null; progress_percentage:number; sections:{id:string;title:string;sequence:number;lessons:CourseLesson[]}[] }
 export interface StudentQuiz { id:string;lesson_id:string;instructions:string;passing_percentage:number;maximum_attempts:number;attempts_used:number;remaining_attempts:number;time_limit_minutes?:number|null;best_percentage:number;passed:boolean;questions:{id:string;question_text:string;question_type:"single_choice"|"multiple_choice"|"true_false";marks:number;sequence:number;options:{id:string;option_text:string;sequence:number}[]}[] }
 export interface QuizResult {attempt_id:string;earned_marks:number;total_marks:number;percentage:number;passed:boolean;attempt_number:number}
 export interface StudentAssignmentSubmission {id:string;attempt_number:number;status:string;text_content?:string|null;link_url?:string|null;original_file_name?:string|null;has_file:boolean;is_late:boolean;submitted_at?:string|null;evaluation?:{marks_awarded:number;decision:string;feedback?:string|null;evaluated_at:string}|null}
@@ -20,6 +20,9 @@ export interface ResumeBuilderData {profile:{headline?:string|null;location?:str
 export interface ResumeContent {professional_summary:string;skills:string[];educations:ResumeEntry[];experiences:ResumeEntry[];projects:ResumeEntry[];certifications:ResumeEntry[];achievements:string[];languages:string[]}
 export interface AtsEvaluation {score:number;grade:string;breakdown:Record<string,number>;strengths:string[];issues:string[];suggestions:string[];created_at?:string}
 export interface GeneratedResume {id:string;title:string;target_role:string;version:number;status:string;model_name?:string|null;created_at:string;updated_at:string;ats?:AtsEvaluation|null;content?:ResumeContent;contact?:Record<string,string|null>}
+export interface CatalogCourse {id:string;title:string;slug:string;description:string;level:string;duration_hours:number;skills:string[];thumbnail_url?:string|null;instructor_name?:string|null;enrollment_count:number;is_enrolled:boolean;enrollment_id?:string|null;progress_percentage:number}
+export interface CourseCatalog {items:CatalogCourse[];levels:string[]}
+export interface MyAssignment {assignment_id:string;lesson_id:string;lesson_title:string;course_id:string;course_title:string;maximum_marks:number;passing_marks:number;due_at?:string|null;status:"not_submitted"|"submitted"|"evaluated"|"resubmission_required";attempts_used:number;maximum_attempts:number;evaluation?:{marks_awarded:number;decision:"passed"|"failed"|"resubmission_required"}|null}
 
 export const loadSkills = () => studentApiRequest<StudentSkill[]>("/api/v1/students/me/skills");
 export const saveSkills = (skills: StudentSkill[]) => studentApiRequest<StudentSkill[]>("/api/v1/students/me/skills", { method: "PUT", body: JSON.stringify(skills) });
@@ -32,7 +35,13 @@ export const uploadResume = (file: File) => {
 };
 export const loadRoadmap = () => studentApiRequest<Roadmap | null>("/api/v1/students/me/roadmaps/current");
 export const generateRoadmap = () => studentApiRequest<Roadmap>("/api/v1/students/me/roadmaps/generate", { method: "POST" });
-export const enrollCourse = (courseId: string, roadmapId: string) => studentApiRequest(`/api/v1/students/me/courses/${courseId}/enroll?roadmap_id=${roadmapId}`, { method: "POST" });
+export const enrollCourse = (courseId: string, roadmapId?: string) => studentApiRequest(`/api/v1/students/me/courses/${courseId}/enroll${roadmapId ? `?roadmap_id=${roadmapId}` : ""}`, { method: "POST" });
+export const loadCourseCatalog = (params: { search?: string; level?: string } = {}) => {
+  const query = new URLSearchParams();
+  if (params.search?.trim()) query.set("search", params.search.trim());
+  if (params.level) query.set("level", params.level);
+  return studentApiRequest<CourseCatalog>(`/api/v1/students/me/courses/catalog${query.toString() ? `?${query}` : ""}`);
+};
 export const loadEnrollments = () => studentApiRequest<Enrollment[]>("/api/v1/students/me/enrollments");
 export const loadEnrolledCourse = (courseId:string) => studentApiRequest<EnrolledCourse>(`/api/v1/students/me/courses/${courseId}`);
 export interface LessonProgressResult {lesson_id:string;status:string;watched_seconds:number;last_position_seconds:number;watched_percentage:number;auto_completed:boolean;progress_percentage:number;completed_lessons:number;lesson_count:number}
@@ -42,6 +51,7 @@ export const loadStudentQuiz = (lessonId:string) => studentApiRequest<StudentQui
 export const startQuizAttempt = (quizId:string) => studentApiRequest<{id:string;attempt_number:number}>(`/api/v1/students/me/quizzes/${quizId}/attempts`,{method:"POST"});
 export const submitQuizAttempt = (attemptId:string,answers:{question_id:string;selected_option_ids:string[]}[]) => studentApiRequest<QuizResult>(`/api/v1/students/me/quiz-attempts/${attemptId}/submit`,{method:"POST",body:JSON.stringify({answers})});
 export const loadStudentAssignment = (lessonId:string) => studentApiRequest<StudentAssignment>(`/api/v1/students/me/lessons/${lessonId}/assignment`);
+export const loadMyAssignments = () => studentApiRequest<MyAssignment[]>("/api/v1/students/me/assignments");
 export const saveAssignmentSubmission = (assignmentId:string,input:{status:"draft"|"submitted";text?:string;link?:string;file?:File|null}) => { const form=new FormData();form.append("status",input.status);if(input.text)form.append("text_content",input.text);if(input.link)form.append("link_url",input.link);if(input.file)form.append("file",input.file);return studentApiRequest<StudentAssignmentSubmission>(`/api/v1/students/me/assignments/${assignmentId}/submissions`,{method:"POST",body:form,headers:{}});};
 export const loadStudentDashboard = () => studentApiRequest<StudentDashboard>("/api/v1/students/me/dashboard");
 export const loadCertificates = () => studentApiRequest<Certificate[]>("/api/v1/students/me/certificates");

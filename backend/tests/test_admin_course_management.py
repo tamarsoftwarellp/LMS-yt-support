@@ -294,6 +294,16 @@ def test_assignment_submission_evaluation_rbac_and_progress() -> None:
         assert enrollment.status == "completed"
         assert submission.status == "evaluated"
 
+    my_assignments = client.get("/api/v1/students/me/assignments", headers=student_headers)
+    assert my_assignments.status_code == 200, my_assignments.text
+    items = my_assignments.json()
+    assert len(items) == 1
+    assert items[0]["assignment_id"] == assignment_id
+    assert items[0]["course_title"] == "Assignment Course"
+    assert items[0]["status"] == "evaluated"
+    assert items[0]["evaluation"] == {"marks_awarded": 45, "decision": "passed"}
+    assert items[0]["attempts_used"] == 1
+
 
 def test_youtube_progress_resume_seek_guard_and_auto_completion() -> None:
     with TestingSession() as db:

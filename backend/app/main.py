@@ -13,11 +13,13 @@ from .assignment_router import admin_router as admin_assignment_router, student_
 from .analytics_router import admin_router as admin_analytics_router, student_router as student_analytics_router
 from .certificate_router import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
 from .resume_builder_router import router as resume_builder_router
+from .institution_router import public_router as institution_public_router, router as institution_admin_router
+from .college_portal_router import router as college_portal_router
 from .admin_schemas import AdminLoginIn, AdminMeOut
 from .career_router import router as career_router
 from .config import get_settings
 from .database import get_db
-from .dependencies import get_current_admin, get_current_student
+from .dependencies import get_current_admin, get_current_staff, get_current_student, get_current_super_admin
 from .models import College, CollegeProgram, Program, RefreshToken, StudentOnboardingStep, StudentProfile, User
 from .schemas import (
     CollegeOut,
@@ -56,6 +58,9 @@ app.include_router(student_certificate_router)
 app.include_router(admin_certificate_router)
 app.include_router(public_certificate_router)
 app.include_router(resume_builder_router)
+app.include_router(institution_public_router)
+app.include_router(institution_admin_router)
+app.include_router(college_portal_router)
 
 STEP_KEYS = {
     "profile": 1,
@@ -162,14 +167,30 @@ def login_student(payload: StudentLoginIn, db: Session = Depends(get_db)) -> Tok
 @app.post("/api/v1/auth/admin/login", response_model=TokenOut)
 def login_admin(payload: AdminLoginIn, db: Session = Depends(get_db)) -> TokenOut:
     user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
-    if not user or not verify_password(payload.password, user.password_hash) or user.role != "admin" or not user.is_active:
+    if not user or not verify_password(payload.password, user.password_hash) or user.role not in ("admin", "super_admin") or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+    if user.role == "admin" and user.college_id:
+        college = db.get(College, user.college_id)
+        if not college or college.status != "active":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your institution's access is not active")
     return _issue_session(user, db)
 
 
 @app.get("/api/v1/auth/admin/me", response_model=AdminMeOut)
 def current_admin(user: User = Depends(get_current_admin)) -> AdminMeOut:
-    return AdminMeOut.model_validate(user)
+    return AdminMeOut(id=user.id, email=user.email, mobile=user.mobile, role=user.role, is_active=user.is_active,
+        created_at=user.created_at, college_id=user.college_id, college_name=user.college.name if user.college else None)
+
+
+@app.get("/api/v1/auth/staff/role")
+def current_staff_role(user: User = Depends(get_current_staff)) -> dict:
+    return {"role": user.role}
+
+
+@app.get("/api/v1/auth/super-admin/me", response_model=AdminMeOut)
+def current_super_admin(user: User = Depends(get_current_super_admin)) -> AdminMeOut:
+    return AdminMeOut(id=user.id, email=user.email, mobile=user.mobile, role=user.role, is_active=user.is_active,
+        created_at=user.created_at, college_id=None, college_name=None)
 
 
 @app.post("/api/v1/auth/refresh", response_model=TokenOut)

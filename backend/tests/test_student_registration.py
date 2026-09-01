@@ -159,7 +159,7 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
         db.add(section)
         db.flush()
         db.add_all([
-            CourseLesson(section_id=section.id, title="Variables", lesson_type="article", duration_minutes=10, sequence=1),
+            CourseLesson(section_id=section.id, title="Variables", lesson_type="article", duration_minutes=10, sequence=1, is_preview=True, article_content="Preview content"),
             CourseLesson(section_id=section.id, title="Functions", lesson_type="quiz", duration_minutes=15, sequence=2),
         ])
         db.commit()
@@ -207,6 +207,51 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
     assert progress.json()["progress_percentage"] == 50
     assert client.get("/api/v1/students/me/roadmaps/current", headers=headers).json()["recommendations"][0]["progress_percentage"] == 50
 
+    with TestingSession() as db:
+        other = Course(title="Advanced Data Structures", slug="advanced-data-structures", description="Deep dive into DSA.", level="Advanced", duration_hours=30, skills=["DSA"], status="published")
+        draft_course = Course(title="Unpublished Draft Course", slug="unpublished-draft-course", description="Not ready yet.", level="Beginner", duration_hours=5, skills=["Draft"], status="draft")
+        db.add_all([other, draft_course]); db.flush()
+        dsa_section = CourseSection(course_id=other.id, title="Trees", sequence=1)
+        db.add(dsa_section); db.flush()
+        db.add_all([
+            CourseLesson(section_id=dsa_section.id, title="Intro to Trees", lesson_type="article", duration_minutes=8, sequence=1, is_preview=True, article_content="Free preview lesson"),
+            CourseLesson(section_id=dsa_section.id, title="Balanced Trees", lesson_type="video", duration_minutes=20, sequence=2, is_preview=False, youtube_id="dQw4w9WgXcQ"),
+        ])
+        db.commit()
+        dsa_course_id = other.id
+
+    catalog = client.get("/api/v1/students/me/courses/catalog", headers=headers)
+    assert catalog.status_code == 200, catalog.text
+    catalog_body = catalog.json()
+    titles = [item["title"] for item in catalog_body["items"]]
+    assert "JavaScript Career Track" in titles
+    assert "Advanced Data Structures" in titles
+    assert "Unpublished Draft Course" not in titles
+    js_entry = next(item for item in catalog_body["items"] if item["title"] == "JavaScript Career Track")
+    assert js_entry["is_enrolled"] is True
+    assert js_entry["enrollment_id"] == body["id"] or js_entry["enrollment_id"]
+    assert js_entry["enrollment_count"] == 1
+    dsa_entry = next(item for item in catalog_body["items"] if item["title"] == "Advanced Data Structures")
+    assert dsa_entry["is_enrolled"] is False
+    assert set(catalog_body["levels"]) == {"Beginner", "Advanced"}
+
+    level_filtered = client.get("/api/v1/students/me/courses/catalog?level=Advanced", headers=headers)
+    assert [item["title"] for item in level_filtered.json()["items"]] == ["Advanced Data Structures"]
+
+    search_filtered = client.get("/api/v1/students/me/courses/catalog?search=javascript", headers=headers)
+    assert [item["title"] for item in search_filtered.json()["items"]] == ["JavaScript Career Track"]
+
+    preview = client.get(f"/api/v1/students/me/courses/{dsa_course_id}", headers=headers)
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert preview_body["is_enrolled"] is False
+    assert preview_body["enrollment_id"] is None
+    preview_lessons = preview_body["sections"][0]["lessons"]
+    assert preview_lessons[0]["is_preview"] is True and preview_lessons[0]["locked"] is False
+    assert preview_lessons[0]["article_content"] == "Free preview lesson"
+    assert preview_lessons[1]["is_preview"] is False and preview_lessons[1]["locked"] is True
+    assert preview_lessons[1]["youtube_id"] is None
+
 
 def test_student_generates_edits_scores_and_downloads_ats_resume(monkeypatch) -> None:
     login = client.post("/api/v1/auth/student/login", json={"email": "arjun@example.com", "password": "StrongPass123"})
@@ -233,6 +278,41 @@ def test_student_generates_edits_scores_and_downloads_ats_resume(monkeypatch) ->
     pdf = client.get(f"/api/v1/students/me/resumes/{resume['id']}/download", headers=headers)
     assert pdf.status_code == 200
     assert pdf.content.startswith(b"%PDF")
+
+
+def test_resume_builder_auto_syncs_completed_courses() -> None:
+    login = client.post("/api/v1/auth/student/login", json={"email": "arjun@example.com", "password": "StrongPass123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    with TestingSession() as db:
+        course = Course(title="Git Fundamentals", slug="git-fundamentals", description="Version control basics.", level="Beginner", duration_hours=4, skills=["Git"], status="published")
+        db.add(course); db.flush()
+        section = CourseSection(course_id=course.id, title="Basics", sequence=1)
+        db.add(section); db.flush()
+        db.add(CourseLesson(section_id=section.id, title="Intro to Git", lesson_type="article", duration_minutes=10, sequence=1, article_content="Git basics"))
+        db.commit()
+        course_id = course.id
+
+    enroll = client.post(f"/api/v1/students/me/courses/{course_id}/enroll", headers=headers)
+    assert enroll.status_code == 201, enroll.text
+    enrollment_id = enroll.json()["id"]
+    detail = client.get(f"/api/v1/students/me/courses/{course_id}", headers=headers).json()
+    lesson_id = detail["sections"][0]["lessons"][0]["id"]
+    progress = client.put(
+        f"/api/v1/students/me/enrollments/{enrollment_id}/lessons/{lesson_id}/progress",
+        headers=headers, json={"status": "completed", "watched_seconds": 0, "last_position_seconds": 0})
+    assert progress.status_code == 200, progress.text
+    assert progress.json()["progress_percentage"] == 100
+
+    builder = client.get("/api/v1/students/me/resume-builder", headers=headers)
+    assert builder.status_code == 200, builder.text
+    titles = [item["title"] for item in builder.json()["profile"]["certifications"]]
+    assert "Git Fundamentals" in titles
+    entry = next(item for item in builder.json()["profile"]["certifications"] if item["title"] == "Git Fundamentals")
+    assert entry["subtitle"] == "Completed via EduConnect LMS"
+
+    again = client.get("/api/v1/students/me/resume-builder", headers=headers)
+    titles_again = [item["title"] for item in again.json()["profile"]["certifications"]]
+    assert titles_again.count("Git Fundamentals") == 1
 
 
 

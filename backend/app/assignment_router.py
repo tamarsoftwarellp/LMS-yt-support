@@ -12,8 +12,8 @@ from .assignment_schemas import AssignmentEvaluationIn, AssignmentUpsertIn
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_admin, get_current_student
-from .models import (Assignment, AssignmentEvaluation, AssignmentSubmission, CourseEnrollment,
-                     CourseLesson, LessonProgress, StudentLearningActivity, User)
+from .models import (Assignment, AssignmentEvaluation, AssignmentSubmission, Course, CourseEnrollment,
+                     CourseLesson, CourseSection, LessonProgress, StudentLearningActivity, User)
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Assignments"])
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Assignments"])
@@ -174,6 +174,45 @@ def admin_download_submission(submission_id: uuid.UUID, db: Session = Depends(ge
     if not submission or not submission.storage_path or not Path(submission.storage_path).is_file():
         raise HTTPException(status_code=404, detail="Submission file not found")
     return FileResponse(submission.storage_path, filename=submission.original_file_name, media_type=submission.mime_type)
+
+
+@student_router.get("/assignments")
+def my_assignments(user: User = Depends(get_current_student), db: Session = Depends(get_db)):
+    enrollments = list(db.scalars(select(CourseEnrollment).options(
+        selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons)
+    ).where(CourseEnrollment.user_id == user.id)))
+    lessons = [(enrollment, lesson) for enrollment in enrollments for section in enrollment.course.sections
+               for lesson in section.lessons if lesson.lesson_type == "assignment"]
+    if not lessons:
+        return []
+    assignments = {item.lesson_id: item for item in db.scalars(select(Assignment).where(
+        Assignment.lesson_id.in_([lesson.id for _, lesson in lessons]), Assignment.status == "published"))}
+    submission_rows = list(db.scalars(select(AssignmentSubmission).options(selectinload(AssignmentSubmission.evaluations)).where(
+        AssignmentSubmission.assignment_id.in_([a.id for a in assignments.values()]),
+        AssignmentSubmission.enrollment_id.in_([e.id for e in enrollments]))))
+    by_key: dict[tuple, list[AssignmentSubmission]] = {}
+    for row in submission_rows:
+        by_key.setdefault((row.assignment_id, row.enrollment_id), []).append(row)
+    result = []
+    for enrollment, lesson in lessons:
+        item = assignments.get(lesson.id)
+        if not item:
+            continue
+        submissions = sorted(by_key.get((item.id, enrollment.id), []), key=lambda x: x.attempt_number, reverse=True)
+        final = [x for x in submissions if x.status != "draft"]
+        latest = final[0] if final else None
+        result.append({
+            "assignment_id": item.id, "lesson_id": lesson.id, "lesson_title": lesson.title,
+            "course_id": enrollment.course_id, "course_title": enrollment.course.title,
+            "maximum_marks": item.maximum_marks, "passing_marks": item.passing_marks,
+            "due_at": item.due_at,
+            "status": latest.status if latest else "not_submitted",
+            "attempts_used": len(final), "maximum_attempts": item.maximum_attempts,
+            "evaluation": ({"marks_awarded": latest.evaluations[-1].marks_awarded,
+                            "decision": latest.evaluations[-1].decision} if latest and latest.evaluations else None),
+        })
+    result.sort(key=lambda item: (item["due_at"] is None, item["due_at"]))
+    return result
 
 
 @student_router.get("/lessons/{lesson_id}/assignment")

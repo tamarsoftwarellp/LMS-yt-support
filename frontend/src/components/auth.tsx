@@ -8,6 +8,7 @@ import {
 import type { MasterOption } from "../api/student-registration";
 import { loginStudent } from "../api/student-auth";
 import { loginAdmin } from "../api/admin-lms";
+import { getStaffRole } from "../api/super-admin";
 import {
   Mail,
   Lock,
@@ -483,7 +484,7 @@ export function AdminLogin({
   onSuccess,
 }: {
   onBack: () => void;
-  onSuccess: () => void;
+  onSuccess: (role: "admin" | "super_admin") => void;
 }) {
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
@@ -499,7 +500,8 @@ export function AdminLogin({
     setLoading(true);
     try {
       await loginAdmin(email, pwd);
-      onSuccess();
+      const { role } = await getStaffRole();
+      onSuccess(role);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in.");
     } finally {

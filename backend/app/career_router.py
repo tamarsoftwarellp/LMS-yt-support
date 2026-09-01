@@ -2,9 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -216,6 +216,42 @@ def current_roadmap(user: User = Depends(get_current_student), db: Session = Dep
     return roadmap_payload(roadmap, user.id, db) if roadmap else None
 
 
+def _catalog_item(course: Course, enrollment: CourseEnrollment | None, enrollment_count: int) -> dict:
+    return {
+        "id": course.id, "title": course.title, "slug": course.slug, "description": course.description,
+        "level": course.level, "duration_hours": course.duration_hours, "skills": course.skills,
+        "thumbnail_url": course.thumbnail_url, "instructor_name": course.instructor_name,
+        "enrollment_count": enrollment_count,
+        "is_enrolled": enrollment is not None,
+        "enrollment_id": str(enrollment.id) if enrollment else None,
+        "progress_percentage": enrollment.progress_percentage if enrollment else 0,
+    }
+
+
+@router.get("/courses/catalog")
+def course_catalog(
+    search: str | None = Query(default=None, max_length=100),
+    level: str | None = Query(default=None, max_length=30),
+    user: User = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    query = select(Course).where(Course.status == "published")
+    if level:
+        query = query.where(Course.level == level)
+    if search and search.strip():
+        value = f"%{search.strip()}%"
+        query = query.where(or_(Course.title.ilike(value), Course.description.ilike(value), Course.instructor_name.ilike(value)))
+    courses = list(db.scalars(query.order_by(Course.title)))
+    enrollments = {item.course_id: item for item in db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id))}
+    counts = dict(db.execute(
+        select(CourseEnrollment.course_id, func.count(CourseEnrollment.id)).group_by(CourseEnrollment.course_id)
+    ).all())
+    return {
+        "items": [_catalog_item(course, enrollments.get(course.id), counts.get(course.id, 0)) for course in courses],
+        "levels": sorted({course.level for course in db.scalars(select(Course).where(Course.status == "published"))}),
+    }
+
+
 @router.post("/courses/{course_id}/enroll", status_code=status.HTTP_201_CREATED)
 def enroll(course_id: uuid.UUID, roadmap_id: uuid.UUID | None = None,
            user: User = Depends(get_current_student), db: Session = Depends(get_db)):
@@ -250,20 +286,25 @@ def enrollments(user: User = Depends(get_current_student), db: Session = Depends
 
 @router.get("/courses/{course_id}")
 def enrolled_course(course_id: uuid.UUID, user: User = Depends(get_current_student), db: Session = Depends(get_db)):
+    course = db.get(Course, course_id)
+    if not course or course.status != "published":
+        raise HTTPException(status_code=404, detail="Course was not found")
     enrollment = db.scalar(select(CourseEnrollment).where(
         CourseEnrollment.user_id == user.id, CourseEnrollment.course_id == course_id))
-    if not enrollment:
-        raise HTTPException(status_code=403, detail="Enroll in this course before opening it")
-    progress = {item.lesson_id: item for item in enrollment.lesson_progress}
-    course = enrollment.course
+    progress = {item.lesson_id: item for item in enrollment.lesson_progress} if enrollment else {}
+    unlocked = bool(enrollment)
     return {"id": course.id, "title": course.title, "description": course.description,
         "level": course.level, "duration_hours": course.duration_hours, "skills": course.skills,
-        "enrollment_id": enrollment.id, "progress_percentage": enrollment.progress_percentage,
+        "is_enrolled": unlocked,
+        "enrollment_id": enrollment.id if enrollment else None,
+        "progress_percentage": enrollment.progress_percentage if enrollment else 0,
         "sections": [{"id": section.id, "title": section.title, "sequence": section.sequence,
             "lessons": [{"id": lesson.id, "title": lesson.title, "lesson_type": lesson.lesson_type,
                 "duration_minutes": lesson.duration_minutes, "sequence": lesson.sequence,
-                "youtube_id": lesson.youtube_id, "article_content": lesson.article_content,
+                "youtube_id": lesson.youtube_id if (unlocked or lesson.is_preview) else None,
+                "article_content": lesson.article_content if (unlocked or lesson.is_preview) else None,
                 "is_preview": lesson.is_preview,
+                "locked": not (unlocked or lesson.is_preview),
                 "status": progress[lesson.id].status if lesson.id in progress else "not_started",
                 "last_position_seconds": progress[lesson.id].last_position_seconds if lesson.id in progress else 0,
                 "watched_seconds": progress[lesson.id].watched_seconds if lesson.id in progress else 0,
