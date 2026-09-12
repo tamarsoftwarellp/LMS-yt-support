@@ -1,13 +1,68 @@
 import json
 import re
+import uuid
+import logging
 
 from fastapi import HTTPException, status
 from groq import AuthenticationError, BadRequestError, Groq, NotFoundError, RateLimitError
 
 from .config import get_settings
 from .resume_builder_schemas import ResumeContent
+from .models import ResumeBuilderProfile, StudentResume, User
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 PROMPT_VERSION = "resume-groq-v2"
+
+logger = logging.getLogger(__name__)
+
+
+def _json_safe(value):
+    """Recursively convert UUIDs (and similar non-JSON types) to strings."""
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _entry_key(entry: dict) -> tuple[str, str]:
+    return (str(entry.get("title") or "").strip().casefold(), str(entry.get("subtitle") or "").strip().casefold())
+
+
+def sync_uploaded_resume_to_builder(user: User, resume: StudentResume, db: Session) -> dict:
+    """Merge parsed upload facts once without overwriting student-entered values."""
+    parsed = (resume.parsed_data or {}).get("builder") or {}
+    profile = db.scalar(select(ResumeBuilderProfile).where(ResumeBuilderProfile.user_id == user.id))
+    if not profile:
+        student = user.student_profile
+        education = [] if not student else [{"title": student.program.name, "subtitle": student.college.name,
+            "start_date": None, "end_date": student.current_year, "location": None, "description": None,
+            "bullets": [], "technologies": [], "url": None}]
+        profile = ResumeBuilderProfile(user_id=user.id, educations=education, experiences=[], projects=[],
+            certifications=[], achievements=[], languages=[])
+        db.add(profile); db.flush()
+
+    imported = {"fields": [], "entries": 0}
+    for field in ("professional_summary", "linkedin_url", "github_url", "portfolio_url"):
+        if not getattr(profile, field) and parsed.get(field):
+            setattr(profile, field, parsed[field]); imported["fields"].append(field)
+    for field in ("educations", "experiences", "projects", "certifications"):
+        existing = list(getattr(profile, field) or [])
+        keys = {_entry_key(item) for item in existing}
+        additions = [item for item in parsed.get(field, []) if _entry_key(item) not in keys and _entry_key(item)[0]]
+        if additions:
+            setattr(profile, field, existing + additions); imported["entries"] += len(additions)
+    for field in ("achievements", "languages"):
+        existing = list(getattr(profile, field) or []); seen = {str(x).casefold() for x in existing}
+        additions = [x for x in parsed.get(field, []) if str(x).casefold() not in seen]
+        if additions:
+            setattr(profile, field, existing + additions); imported["entries"] += len(additions)
+    resume.parsed_data = {**(resume.parsed_data or {}), "builder_sync": {"status": "synced", **imported}}
+    db.flush()
+    return imported
 
 
 def _resume_json_schema() -> dict:
@@ -57,30 +112,45 @@ def _fact_safe_fallback(snapshot: dict) -> ResumeContent:
 
 def generate_resume_content(snapshot: dict) -> tuple[ResumeContent, str]:
     settings = get_settings()
+    snapshot = _json_safe(snapshot)
     if not settings.groq_api_key:
         raise HTTPException(status_code=503, detail="Resume generation is not configured. Add GROQ_API_KEY in backend/.env.")
     client = Groq(api_key=settings.groq_api_key, timeout=90.0, max_retries=2)
     prompt = ("You are an ATS resume writing assistant. Use ONLY facts in the supplied snapshot. Never invent employers, dates, degrees, marks, metrics, links, certifications, technologies, or achievements. "
-        "Improve wording using concise action verbs, preserve all factual meaning, and align naturally to target_role. Use null for missing optional entry fields and [] for missing lists.")
+        "Improve wording using concise action verbs, preserve all factual meaning, and align naturally to target_role. Use null for missing optional entry fields and [] for missing lists. "
+        "professional_summary MUST be at least 40 words (roughly 250+ characters) — write a full paragraph covering the candidate's background, key skills, and target_role fit, never a short phrase or single sentence fragment.")
     try:
         response = client.chat.completions.create(model=settings.groq_model,
-            messages=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False)}],
+            messages=[{"role":"system","content":prompt},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False,default=str)}],
             response_format={"type":"json_schema","json_schema":{"name":"ats_resume","strict":True,"schema":_resume_json_schema()}},
             temperature=0.1, max_completion_tokens=3500)
-    except BadRequestError:
+    except BadRequestError as exc:
+        logger.warning("Groq rejected structured schema, retrying with json_object mode: %s", exc)
         try:
             response = client.chat.completions.create(model=settings.groq_model,
-                messages=[{"role":"system","content":prompt + " Return only one valid JSON object."},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False)}],
+                messages=[{"role":"system","content":prompt + " Return only one valid JSON object."},{"role":"user","content":json.dumps(snapshot,ensure_ascii=False,default=str)}],
                 response_format={"type":"json_object"}, temperature=0.1, max_completion_tokens=3500)
-        except Exception:
+        except Exception as fallback_exc:
+            logger.warning("Groq fallback (json_object) also failed, using fact-safe fallback: %s: %s", type(fallback_exc).__name__, fallback_exc)
             return _fact_safe_fallback(snapshot), f"{settings.groq_model}:fallback"
-    except NotFoundError as exc: raise HTTPException(status_code=502, detail=f"Groq model '{settings.groq_model}' is unavailable") from exc
-    except AuthenticationError as exc: raise HTTPException(status_code=503, detail="Groq rejected the API key") from exc
-    except RateLimitError as exc: raise HTTPException(status_code=429, detail="Groq Free Tier rate limit reached. Please wait and retry.") from exc
-    except Exception as exc: raise HTTPException(status_code=502, detail="Resume generation is temporarily unavailable") from exc
+    except NotFoundError as exc:
+        logger.error("Groq model not found: %s: %s", settings.groq_model, exc)
+        raise HTTPException(status_code=502, detail=f"Groq model '{settings.groq_model}' is unavailable") from exc
+    except AuthenticationError as exc:
+        logger.error("Groq authentication failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Groq rejected the API key") from exc
+    except RateLimitError as exc:
+        logger.warning("Groq rate limit hit: %s", exc)
+        raise HTTPException(status_code=429, detail="Groq Free Tier rate limit reached. Please wait and retry.") from exc
+    except Exception as exc:
+        logger.exception("Groq resume generation failed unexpectedly: %s: %s", type(exc).__name__, exc)
+        raise HTTPException(status_code=502, detail="Resume generation is temporarily unavailable") from exc
     content = response.choices[0].message.content if response.choices else None
-    try: return ResumeContent.model_validate_json(content or ""), settings.groq_model
-    except Exception: return _fact_safe_fallback(snapshot), f"{settings.groq_model}:fallback"
+    try:
+        return ResumeContent.model_validate_json(content or ""), settings.groq_model
+    except Exception as exc:
+        logger.warning("Groq response failed schema validation, using fact-safe fallback: %s", exc)
+        return _fact_safe_fallback(snapshot), f"{settings.groq_model}:fallback"
 
 
 def ats_evaluate(snapshot: dict, content: dict) -> dict:

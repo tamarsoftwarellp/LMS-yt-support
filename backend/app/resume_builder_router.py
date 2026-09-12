@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session
 from .database import get_db
 from .dependencies import get_current_student
 from .models import (Certificate, CourseEnrollment, GeneratedResume, ResumeAtsEvaluation,
-                     ResumeBuilderProfile, StudentSkill, User)
+                     ResumeBuilderProfile, StudentResume, StudentSkill, User)
 from .resume_builder_schemas import GenerateResumeIn, ResumeBuilderIn, UpdateResumeIn
-from .resume_builder_service import PROMPT_VERSION, ats_evaluate, generate_resume_content
+from .resume_builder_service import PROMPT_VERSION, _json_safe, ats_evaluate, generate_resume_content, sync_uploaded_resume_to_builder
 
 router = APIRouter(prefix="/api/v1/students/me", tags=["ATS Resume Builder"])
 
@@ -33,7 +33,16 @@ def _profile_out(profile: ResumeBuilderProfile, user: User, db: Session) -> dict
     student=user.student_profile
     return {"profile":{"headline":profile.headline,"location":profile.location,"linkedin_url":profile.linkedin_url,"github_url":profile.github_url,"portfolio_url":profile.portfolio_url,
         "professional_summary":profile.professional_summary,"educations":profile.educations,"experiences":profile.experiences,"projects":profile.projects,"certifications":profile.certifications,"achievements":profile.achievements,"languages":profile.languages},
-        "auto":{"full_name":student.full_name if student else user.email,"email":user.email,"mobile":user.mobile,"college":student.college.name if student else None,"program":student.program.name if student else None,"current_year":student.current_year if student else None,"skills":skills,"completed_courses":completed,"earned_certificates":earned}}
+        "auto":{"full_name":student.full_name if student else user.email,"email":user.email,"mobile":user.mobile,"college":student.college.name if student else None,"program":student.program.name if student else None,"current_year":student.current_year if student else None,"skills":skills,"completed_courses":completed,"earned_certificates":earned,
+        "uploaded_resume": _uploaded_resume_meta(user, db)}}
+
+
+def _uploaded_resume_meta(user: User, db: Session):
+    resume=db.scalar(select(StudentResume).where(StudentResume.user_id==user.id,StudentResume.is_current.is_(True)).order_by(StudentResume.uploaded_at.desc()))
+    if not resume:return None
+    sync=(resume.parsed_data or {}).get("builder_sync") or {}
+    return {"id":resume.id,"file_name":resume.original_file_name,"parsing_status":resume.parsing_status,
+        "sync_status":sync.get("status"),"imported_fields":sync.get("fields",[]),"imported_entries":sync.get("entries",0)}
 
 
 def _sync_progress(item: ResumeBuilderProfile, user: User, db: Session) -> ResumeBuilderProfile:
@@ -84,7 +93,11 @@ def _save_evaluation(item:GeneratedResume,db:Session):
 
 @router.get("/resume-builder")
 def get_builder(user:User=Depends(get_current_student),db:Session=Depends(get_db)):
-    return _profile_out(_get_or_create(user,db),user,db)
+    profile=_get_or_create(user,db)
+    resume=db.scalar(select(StudentResume).where(StudentResume.user_id==user.id,StudentResume.is_current.is_(True)).order_by(StudentResume.uploaded_at.desc()))
+    if resume and resume.parsing_status=="processed" and (resume.parsed_data or {}).get("builder_sync",{}).get("status")!="synced":
+        sync_uploaded_resume_to_builder(user,resume,db);db.commit();db.refresh(profile)
+    return _profile_out(profile,user,db)
 
 
 @router.put("/resume-builder")
@@ -97,6 +110,7 @@ def save_builder(payload:ResumeBuilderIn,user:User=Depends(get_current_student),
 @router.post("/resumes/generate",status_code=status.HTTP_201_CREATED)
 def generate_resume(payload:GenerateResumeIn,user:User=Depends(get_current_student),db:Session=Depends(get_db)):
     profile=_get_or_create(user,db);snapshot=_snapshot(profile,user,db,payload.target_role.strip())
+    snapshot=_json_safe(snapshot)
     if not snapshot["educations"]:raise HTTPException(status_code=422,detail="Add at least one education entry before generating your resume")
     draft,model=generate_resume_content(snapshot);version=(db.scalar(select(func.max(GeneratedResume.version)).where(GeneratedResume.user_id==user.id))or 0)+1
     item=GeneratedResume(user_id=user.id,title=payload.title or f"{payload.target_role} Resume",target_role=payload.target_role.strip(),version=version,input_snapshot=snapshot,content=draft.model_dump(),model_name=model,prompt_version=PROMPT_VERSION)

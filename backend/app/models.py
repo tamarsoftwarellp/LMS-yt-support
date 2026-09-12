@@ -18,6 +18,8 @@ class College(Base):
     contact_email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejected_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -59,6 +61,9 @@ class CollegeProgram(Base):
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role in ('student', 'lms_admin', 'college_admin')", name="ck_users_role"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
@@ -82,10 +87,125 @@ class StudentProfile(Base):
     program_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("programs.id"), index=True)
     current_year: Mapped[str] = mapped_column(String(30))
     roll_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    college_batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("college_batches.id", ondelete="SET NULL"), nullable=True, index=True)
+    college_section_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("college_sections.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     user: Mapped[User] = relationship(back_populates="student_profile")
     college: Mapped[College] = relationship()
     program: Mapped[Program] = relationship()
+
+
+class CollegeFaculty(Base):
+    __tablename__ = "college_faculty"
+    __table_args__ = (UniqueConstraint("college_id", "email", name="uq_college_faculty_email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    full_name: Mapped[str] = mapped_column(String(180))
+    email: Mapped[str] = mapped_column(String(254))
+    mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    designation: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    invited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CollegeBatch(Base):
+    __tablename__ = "college_batches"
+    __table_args__ = (UniqueConstraint("college_id", "program_id", "name", name="uq_college_batch_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    program_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("programs.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    academic_year: Mapped[str] = mapped_column(String(30))
+    capacity: Mapped[int] = mapped_column(Integer, default=60)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    program: Mapped[Program] = relationship()
+
+
+class CollegeSection(Base):
+    __tablename__ = "college_sections"
+    __table_args__ = (UniqueConstraint("batch_id", "name", name="uq_college_section_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("college_batches.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    capacity: Mapped[int] = mapped_column(Integer, default=30)
+    coordinator_faculty_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("college_faculty.id", ondelete="SET NULL"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    batch: Mapped[CollegeBatch] = relationship()
+    coordinator: Mapped[CollegeFaculty | None] = relationship()
+
+
+class CollegeCourseAllocation(Base):
+    __tablename__ = "college_course_allocations"
+    __table_args__ = (UniqueConstraint("college_id", "course_id", "program_id", "batch_id", name="uq_college_course_allocation"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"), index=True)
+    program_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("programs.id"), index=True)
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("college_batches.id", ondelete="CASCADE"), nullable=True, index=True)
+    faculty_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("college_faculty.id", ondelete="SET NULL"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    course: Mapped["Course"] = relationship()
+    program: Mapped[Program] = relationship()
+    batch: Mapped[CollegeBatch | None] = relationship()
+    faculty: Mapped[CollegeFaculty | None] = relationship()
+
+
+class CollegeCertificateRequest(Base):
+    __tablename__ = "college_certificate_requests"
+    __table_args__ = (UniqueConstraint("college_id", "enrollment_id", name="uq_college_certificate_request"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_enrollments.id", ondelete="CASCADE"), index=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CollegeAuditLog(Base):
+    __tablename__ = "college_audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    entity_type: Mapped[str] = mapped_column(String(50))
+    entity_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class CollegeProfileChangeRequest(Base):
+    __tablename__ = "college_profile_change_requests"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    changes: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StudentPasswordResetRequest(Base):
+    __tablename__ = "student_password_reset_requests"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    college_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("colleges.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class StudentOnboardingStep(Base):
@@ -318,6 +438,7 @@ class CourseEnrollment(Base):
     course_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("courses.id"), index=True)
     roadmap_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("student_roadmaps.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(30), default="enrolled")
+    previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     progress_percentage: Mapped[int] = mapped_column(Integer, default=0)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     course: Mapped[Course] = relationship()

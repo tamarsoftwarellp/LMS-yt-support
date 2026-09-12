@@ -57,26 +57,26 @@ def main() -> int:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == email))
         password_hash = hash_password(password)
-        if user and user.role not in ("super_admin", "admin"):
+        if user and user.role not in ("lms_admin", "super_admin", "admin"):
             raise SystemExit(f"An account with a different role already exists for {email}")
         if not user:
-            user = User(email=email, mobile=mobile, password_hash=password_hash, role="super_admin", is_active=True)
+            user = User(email=email, mobile=mobile, password_hash=password_hash, role="lms_admin", is_active=True)
             db.add(user)
             action = "created"
         else:
-            user.role = "super_admin"
+            user.role = "lms_admin"
             user.college_id = None
             user.is_active = True
             user.mobile = mobile
             user.password_hash = password_hash
-            action = "promoted to super_admin and updated"
+            action = "promoted to lms_admin and updated"
         try:
             db.commit()
         except IntegrityError as exc:
             db.rollback()
             raise SystemExit(f"Unable to create or update super admin account: {exc.orig}") from exc
 
-    print(f"Super admin account {action} for {email}")
+    print(f"LMS admin account {action} for {email}")
     return 0
 
 

@@ -13,7 +13,8 @@ from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_student
 from .models import CareerGoal, Course, CourseEnrollment, CourseLesson, LessonProgress, Skill, StudentLearningActivity, StudentResume, StudentRoadmap, StudentSkill, User
-from .resume_service import detect_skills, extract_resume_text
+from .resume_service import evaluate_uploaded_resume, extract_resume_text, parse_resume_data
+from .resume_builder_service import sync_uploaded_resume_to_builder
 from .roadmap_service import PROMPT_VERSION, generate_roadmap
 
 
@@ -119,9 +120,10 @@ async def upload_resume(file: UploadFile = File(...), user: User = Depends(get_c
         text = extract_resume_text(content, extension).strip()
         known = list(db.scalars(select(Skill.name).where(Skill.is_active.is_(True))))
         resume.parsed_text = text[:50000]
-        resume.parsed_data = {"detected_skills": detect_skills(text, known), "text_length": len(text)}
+        resume.parsed_data = parse_resume_data(text, known)
         resume.parsing_status = "processed"
         resume.processed_at = datetime.now(timezone.utc)
+        sync_uploaded_resume_to_builder(user, resume, db)
     except Exception as exc:
         resume.parsing_status = "failed"
         resume.processing_error = f"{type(exc).__name__}: unable to extract resume text"
@@ -140,6 +142,21 @@ def get_resume(user: User = Depends(get_current_student), db: Session = Depends(
     return {"id": resume.id, "file_name": resume.original_file_name, "file_size": resume.file_size,
             "parsing_status": resume.parsing_status, "parsed_data": resume.parsed_data,
             "processing_error": resume.processing_error, "uploaded_at": resume.uploaded_at}
+
+
+@router.post("/resume/ats-score")
+def score_uploaded_resume(user: User = Depends(get_current_student), db: Session = Depends(get_db)):
+    resume = db.scalar(select(StudentResume).where(
+        StudentResume.user_id == user.id, StudentResume.is_current.is_(True)
+    ).order_by(StudentResume.uploaded_at.desc()))
+    if not resume:
+        raise HTTPException(status_code=404, detail="Upload a resume before checking its ATS score")
+    if resume.parsing_status != "processed" or not resume.parsed_text:
+        raise HTTPException(status_code=422, detail="Resume text could not be processed for ATS scoring")
+    result = evaluate_uploaded_resume(resume.parsed_data or {}, resume.parsed_text)
+    resume.parsed_data = {**(resume.parsed_data or {}), "ats_evaluation": result}
+    db.commit()
+    return result
 
 
 def match_courses(phases: list[dict], courses: list[Course]) -> list[dict]:

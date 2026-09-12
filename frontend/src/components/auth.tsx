@@ -153,10 +153,7 @@ function SocialBtn({
   onClick?: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className="..."
-    >
+    <button onClick={onClick} className="...">
       {icon} {label}
     </button>
   );
@@ -484,7 +481,7 @@ export function AdminLogin({
   onSuccess,
 }: {
   onBack: () => void;
-  onSuccess: (role: "admin" | "super_admin") => void;
+  onSuccess: (role: "lms_admin" | "college_admin") => void;
 }) {
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
@@ -513,9 +510,9 @@ export function AdminLogin({
     <AuthCard>
       <AuthHeader
         icon={ShieldCheck}
-        badge="Admin"
-        title="Admin Sign In"
-        sub="Secure access for course managers and curriculum builders."
+        badge="Staff"
+        title="Staff Sign In"
+        sub="Secure access for LMS and institution administrators."
       />
 
       <div className="mx-8 mt-6 flex items-start gap-2.5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-xl">
@@ -531,7 +528,10 @@ export function AdminLogin({
         <div>
           <FieldLabel label="Email Address" required />
           <div className="relative">
-            <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]" />
+            <Mail
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
+            />
             <input
               type="email"
               value={email}
@@ -546,11 +546,20 @@ export function AdminLogin({
           <div className="flex items-center justify-between mb-1.5">
             <FieldLabel label="Password" required />
           </div>
-          <PwdInput value={pwd} onChange={setPwd} placeholder="Admin password" />
+          <PwdInput
+            value={pwd}
+            onChange={setPwd}
+            placeholder="Admin password"
+          />
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          {["Course CRUD", "Curriculum Builder", "Publish Workflow", "Admin RBAC"].map((b) => (
+          {[
+            "Course CRUD",
+            "Curriculum Builder",
+            "Publish Workflow",
+            "Admin RBAC",
+          ].map((b) => (
             <span
               key={b}
               className="flex items-center gap-1 px-2 py-0.5 bg-[#EBF1FA] text-[#1B3A6B] text-[10.5px] font-medium rounded-full"
@@ -566,7 +575,11 @@ export function AdminLogin({
           disabled={loading}
           className="w-full py-3 bg-[#1B3A6B] hover:bg-[#152d54] text-white rounded-xl text-[14px] font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-60"
         >
-          {loading ? <RefreshCw size={15} className="animate-spin" /> : <LogIn size={15} />}
+          {loading ? (
+            <RefreshCw size={15} className="animate-spin" />
+          ) : (
+            <LogIn size={15} />
+          )}
           {loading ? "Signing in…" : "Open Admin Portal"}
         </button>
       </div>
@@ -586,7 +599,7 @@ export function AdminLogin({
 
 type RegStep = "details" | "college" | "done";
 const STEP_ORDER: RegStep[] = ["details", "college", "done"];
-const STEP_LABELS: Record<Exclude<RegStep,"done">,string> = {
+const STEP_LABELS: Record<Exclude<RegStep, "done">, string> = {
   details: "Personal & Login Details",
   college: "College Information",
 };
@@ -691,7 +704,11 @@ export function StudentRegister({
         });
         setStep("done");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Registration failed. Please try again.",
+        );
       } finally {
         setLoading(false);
       }
@@ -848,8 +865,16 @@ export function StudentRegister({
                   disabled={mastersLoading && colleges.length === 0}
                   className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
                 >
-                  <option value="">{mastersLoading && colleges.length === 0 ? "Loading colleges…" : "Select your college"}</option>
-                  {colleges.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  <option value="">
+                    {mastersLoading && colleges.length === 0
+                      ? "Loading colleges…"
+                      : "Select your college"}
+                  </option>
+                  {colleges.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown
                   size={13}
@@ -870,8 +895,16 @@ export function StudentRegister({
                   disabled={!college || mastersLoading}
                   className={`${inputCls} pl-9 appearance-none pr-8 cursor-pointer`}
                 >
-                  <option value="">{mastersLoading && college ? "Loading programs…" : "Select department"}</option>
-                  {programs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  <option value="">
+                    {mastersLoading && college
+                      ? "Loading programs…"
+                      : "Select department"}
+                  </option>
+                  {programs.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
                 </select>
                 <ChevronDown
                   size={13}
@@ -1042,5 +1075,3 @@ export function StudentRegister({
     </AuthCard>
   );
 }
-
-

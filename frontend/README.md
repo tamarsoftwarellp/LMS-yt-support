@@ -64,9 +64,9 @@ Output goes to `dist/`.
 | `/student/*` | Logged-in students | Career portal — skills, goal, AI roadmap, resume builder, certificates |
 | `/lms/*` | Logged-in students | Dashboard, catalog, my courses, assignments, progress, certificates, course player |
 | `/college` | Institutions | Public registration form — creates a college + its first admin, pending super-admin approval |
-| `/admin/login` | College admins & the platform owner | Single login; routes to the right dashboard based on role |
-| `/admin/*` | College admins | Course/quiz/assignment/certificate management + institution profile |
-| `/super-admin` | Platform owner only | Institution approval — pending/active/suspended/rejected, approve/reject/suspend |
+| `/admin/login` | LMS and college admins | Single login; routes to the right dashboard based on role |
+| `/admin/*` | LMS Admin | Global courses, quizzes, assignments, certificates, analytics and college approvals |
+| `/college-admin/*` | College Admin | Own institution profile, programs and students only |
 | `/verify-certificate/:token` | Public | Certificate authenticity check |
 
 ## Project structure
@@ -91,6 +91,6 @@ src/
 
 ## Notes
 
-- Student and admin sessions are independent (separate token storage), so you
+- Student and staff sessions are independent (separate token storage), so you
   can be logged in as both in the same browser for testing.
 - Access tokens live in `sessionStorage`; refresh tokens in `localStorage`.

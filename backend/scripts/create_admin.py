@@ -51,14 +51,14 @@ def main() -> int:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == email))
         password_hash = hash_password(password)
-        if user and user.role != "admin":
+        if user and user.role not in ("lms_admin", "admin", "super_admin"):
             raise SystemExit(f"A non-admin account already exists for {email}")
         if not user:
-            user = User(email=email, mobile=mobile, password_hash=password_hash, role="admin", is_active=True)
+            user = User(email=email, mobile=mobile, password_hash=password_hash, role="lms_admin", is_active=True)
             db.add(user)
             action = "created"
         else:
-            user.role = "admin"
+            user.role = "lms_admin"
             user.is_active = True
             user.mobile = mobile
             user.password_hash = password_hash
@@ -69,7 +69,7 @@ def main() -> int:
             db.rollback()
             raise SystemExit(f"Unable to create or update admin account: {exc.orig}") from exc
 
-    print(f"Admin account {action} for {email}")
+    print(f"LMS admin account {action} for {email}")
     return 0
 
 

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads/resumes"
     max_resume_size_mb: int = 5
     assignment_upload_dir: str = "uploads/assignments"
+    college_logo_upload_dir: str = "uploads/college-logos"
     max_assignment_size_mb: int = 50
     public_app_url: str = "http://localhost:5173"
 

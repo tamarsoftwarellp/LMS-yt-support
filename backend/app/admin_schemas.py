@@ -17,7 +17,7 @@ class AdminMeOut(BaseModel):
     id: uuid.UUID
     email: EmailStr
     mobile: str
-    role: Literal["admin", "super_admin"]
+    role: Literal["lms_admin", "college_admin"]
     is_active: bool
     created_at: datetime
     college_id: uuid.UUID | None = None

@@ -69,7 +69,7 @@ def seed_admin_user() -> None:
     with TestingSession() as db:
         admin = db.scalar(select(User).where(User.email == "admin@example.com"))
         if not admin:
-            db.add(User(email="admin@example.com", mobile="9876543210", password_hash=hash_password("StrongPass123"), role="admin"))
+            db.add(User(email="admin@example.com", mobile="9876543210", password_hash=hash_password("StrongPass123"), role="lms_admin"))
             db.commit()
 
 
@@ -87,7 +87,7 @@ def test_admin_can_log_in() -> None:
     profile = client.get("/api/v1/auth/admin/me", headers={"Authorization": f"Bearer {response.json()['access_token']}"})
     assert profile.status_code == 200, profile.text
     assert profile.json()["email"] == "admin@example.com"
-    assert profile.json()["role"] == "admin"
+    assert profile.json()["role"] == "lms_admin"
 
 
 def test_student_cannot_log_in_as_admin() -> None:

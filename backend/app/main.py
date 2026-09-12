@@ -19,7 +19,7 @@ from .admin_schemas import AdminLoginIn, AdminMeOut
 from .career_router import router as career_router
 from .config import get_settings
 from .database import get_db
-from .dependencies import get_current_admin, get_current_staff, get_current_student, get_current_super_admin
+from .dependencies import get_current_lms_admin, get_current_staff, get_current_student
 from .models import College, CollegeProgram, Program, RefreshToken, StudentOnboardingStep, StudentProfile, User
 from .schemas import (
     CollegeOut,
@@ -91,7 +91,10 @@ def list_colleges(
     search: str | None = Query(default=None, max_length=100),
     db: Session = Depends(get_db),
 ) -> list[College]:
-    query = select(College).where(College.is_active.is_(True)).order_by(College.name)
+    query = select(College).where(
+        College.is_active.is_(True),
+        College.status == "active",
+    ).order_by(College.name)
     if search:
         query = query.where(College.name.ilike(f"%{search.strip()}%"))
     return list(db.scalars(query.limit(100)))
@@ -99,10 +102,16 @@ def list_colleges(
 
 @app.get("/api/v1/masters/colleges/{college_id}/programs", response_model=list[ProgramOut])
 def list_college_programs(college_id: uuid.UUID, db: Session = Depends(get_db)) -> list[Program]:
+    college = db.get(College, college_id)
+    if not college or not college.is_active or college.status != "active":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approved college not found")
     query = (
         select(Program)
         .join(CollegeProgram, CollegeProgram.program_id == Program.id)
-        .where(CollegeProgram.college_id == college_id, Program.is_active.is_(True))
+        .where(
+            CollegeProgram.college_id == college_id,
+            Program.is_active.is_(True),
+        )
         .order_by(Program.name)
     )
     return list(db.scalars(query))
@@ -119,10 +128,18 @@ def register_student(payload: StudentRegistrationIn, db: Session = Depends(get_d
         field = "email" if existing.email == payload.email else "mobile number"
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An account with this {field} already exists")
 
+    college = db.get(College, payload.college_id)
+    if not college or not college.is_active or college.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Student registration is available only for LMS Admin-approved colleges",
+        )
+
     mapping_exists = db.scalar(
         select(CollegeProgram.id).where(
             CollegeProgram.college_id == payload.college_id,
             CollegeProgram.program_id == payload.program_id,
+            CollegeProgram.program.has(Program.is_active.is_(True)),
         )
     )
     if not mapping_exists:
@@ -167,9 +184,9 @@ def login_student(payload: StudentLoginIn, db: Session = Depends(get_db)) -> Tok
 @app.post("/api/v1/auth/admin/login", response_model=TokenOut)
 def login_admin(payload: AdminLoginIn, db: Session = Depends(get_db)) -> TokenOut:
     user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
-    if not user or not verify_password(payload.password, user.password_hash) or user.role not in ("admin", "super_admin") or not user.is_active:
+    if not user or not verify_password(payload.password, user.password_hash) or user.role not in ("lms_admin", "college_admin") or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-    if user.role == "admin" and user.college_id:
+    if user.role == "college_admin":
         college = db.get(College, user.college_id)
         if not college or college.status != "active":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Your institution's access is not active")
@@ -177,7 +194,7 @@ def login_admin(payload: AdminLoginIn, db: Session = Depends(get_db)) -> TokenOu
 
 
 @app.get("/api/v1/auth/admin/me", response_model=AdminMeOut)
-def current_admin(user: User = Depends(get_current_admin)) -> AdminMeOut:
+def current_admin(user: User = Depends(get_current_staff)) -> AdminMeOut:
     return AdminMeOut(id=user.id, email=user.email, mobile=user.mobile, role=user.role, is_active=user.is_active,
         created_at=user.created_at, college_id=user.college_id, college_name=user.college.name if user.college else None)
 
@@ -187,8 +204,8 @@ def current_staff_role(user: User = Depends(get_current_staff)) -> dict:
     return {"role": user.role}
 
 
-@app.get("/api/v1/auth/super-admin/me", response_model=AdminMeOut)
-def current_super_admin(user: User = Depends(get_current_super_admin)) -> AdminMeOut:
+@app.get("/api/v1/auth/lms-admin/me", response_model=AdminMeOut)
+def current_lms_admin(user: User = Depends(get_current_lms_admin)) -> AdminMeOut:
     return AdminMeOut(id=user.id, email=user.email, mobile=user.mobile, role=user.role, is_active=user.is_active,
         created_at=user.created_at, college_id=None, college_name=None)
 
@@ -202,6 +219,8 @@ def refresh_session(payload: RefreshIn, db: Session = Depends(get_db)) -> TokenO
     user = db.get(User, stored.user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is unavailable")
+    if user.role == "college_admin" and (not user.college_id or not user.college or user.college.status != "active"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Institution access is unavailable")
     stored.revoked_at = now
     return _issue_session(user, db)
 

@@ -25,19 +25,65 @@ export interface InstitutionHistoryEntry {
 export interface InstitutionDetail extends Institution {
   history: InstitutionHistoryEntry[];
 }
+export interface ProfileChangeRequest {
+  id: string;
+  college_id: string;
+  college_name: string;
+  changes: Record<string, string>;
+  status: string;
+  created_at: string;
+}
 
-export const getStaffRole = () => adminApiRequest<{ role: "admin" | "super_admin" }>("/api/v1/auth/staff/role");
-export const getCurrentSuperAdmin = () => adminApiRequest<{ id: string; email: string; mobile: string; role: string }>("/api/v1/auth/super-admin/me");
+export const getStaffRole = () =>
+  adminApiRequest<{ role: "lms_admin" | "college_admin" }>(
+    "/api/v1/auth/staff/role",
+  );
+export const getCurrentLmsAdmin = () =>
+  adminApiRequest<{ id: string; email: string; mobile: string; role: string }>(
+    "/api/v1/auth/lms-admin/me",
+  );
 
 export const listInstitutions = (status?: string, search?: string) => {
   const query = new URLSearchParams();
   if (status) query.set("status", status);
   if (search?.trim()) query.set("search", search.trim());
-  return adminApiRequest<Institution[]>(`/api/v1/super-admin/institutions${query.toString() ? `?${query}` : ""}`);
+  return adminApiRequest<Institution[]>(
+    `/api/v1/lms-admin/institutions${query.toString() ? `?${query}` : ""}`,
+  );
 };
 
-export const getInstitution = (id: string) => adminApiRequest<InstitutionDetail>(`/api/v1/super-admin/institutions/${id}`);
-export const approveInstitution = (id: string) => adminApiRequest<Institution>(`/api/v1/super-admin/institutions/${id}/approve`, { method: "POST" });
-export const rejectInstitution = (id: string, reason: string) => adminApiRequest<Institution>(`/api/v1/super-admin/institutions/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
-export const suspendInstitution = (id: string, reason: string) => adminApiRequest<Institution>(`/api/v1/super-admin/institutions/${id}/suspend`, { method: "POST", body: JSON.stringify({ reason }) });
-export const reactivateInstitution = (id: string) => adminApiRequest<Institution>(`/api/v1/super-admin/institutions/${id}/reactivate`, { method: "POST" });
+export const getInstitution = (id: string) =>
+  adminApiRequest<InstitutionDetail>(`/api/v1/lms-admin/institutions/${id}`);
+export const approveInstitution = (id: string) =>
+  adminApiRequest<Institution>(`/api/v1/lms-admin/institutions/${id}/approve`, {
+    method: "POST",
+  });
+export const rejectInstitution = (id: string, reason: string) =>
+  adminApiRequest<Institution>(`/api/v1/lms-admin/institutions/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+export const suspendInstitution = (id: string, reason: string) =>
+  adminApiRequest<Institution>(`/api/v1/lms-admin/institutions/${id}/suspend`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+export const reactivateInstitution = (id: string) =>
+  adminApiRequest<Institution>(
+    `/api/v1/lms-admin/institutions/${id}/reactivate`,
+    { method: "POST" },
+  );
+export const listProfileChangeRequests = () =>
+  adminApiRequest<ProfileChangeRequest[]>(
+    "/api/v1/lms-admin/institutions/profile-changes/pending",
+  );
+export const approveProfileChange = (id: string) =>
+  adminApiRequest(
+    `/api/v1/lms-admin/institutions/profile-changes/${id}/approve`,
+    { method: "POST" },
+  );
+export const rejectProfileChange = (id: string, reason: string) =>
+  adminApiRequest(
+    `/api/v1/lms-admin/institutions/profile-changes/${id}/reject`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
