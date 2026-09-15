@@ -1,0 +1,34 @@
+"""college admin operational modules"""
+
+from alembic import op
+import sqlalchemy as sa
+
+revision = "20260912_14_college_ops"
+down_revision = "20260912_13_lms_admin_roles"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.add_column("colleges", sa.Column("website_url", sa.String(500), nullable=True))
+    op.add_column("colleges", sa.Column("logo_url", sa.String(500), nullable=True))
+    op.create_table("college_faculty", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("college_id", sa.Uuid(), sa.ForeignKey("colleges.id", ondelete="CASCADE"), nullable=False), sa.Column("full_name", sa.String(180), nullable=False), sa.Column("email", sa.String(254), nullable=False), sa.Column("mobile", sa.String(20)), sa.Column("designation", sa.String(120)), sa.Column("department", sa.String(180)), sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()), sa.Column("invited_at", sa.DateTime(timezone=True), server_default=sa.func.now()), sa.UniqueConstraint("college_id", "email", name="uq_college_faculty_email"))
+    op.create_index("ix_college_faculty_college_id", "college_faculty", ["college_id"])
+    op.create_table("college_batches", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("college_id", sa.Uuid(), sa.ForeignKey("colleges.id", ondelete="CASCADE"), nullable=False), sa.Column("program_id", sa.Uuid(), sa.ForeignKey("programs.id"), nullable=False), sa.Column("name", sa.String(120), nullable=False), sa.Column("academic_year", sa.String(30), nullable=False), sa.Column("capacity", sa.Integer(), nullable=False, server_default="60"), sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()), sa.UniqueConstraint("college_id", "program_id", "name", name="uq_college_batch_name"))
+    op.create_index("ix_college_batches_college_id", "college_batches", ["college_id"]); op.create_index("ix_college_batches_program_id", "college_batches", ["program_id"])
+    op.create_table("college_sections", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("batch_id", sa.Uuid(), sa.ForeignKey("college_batches.id", ondelete="CASCADE"), nullable=False), sa.Column("name", sa.String(80), nullable=False), sa.Column("capacity", sa.Integer(), nullable=False, server_default="30"), sa.Column("coordinator_faculty_id", sa.Uuid(), sa.ForeignKey("college_faculty.id", ondelete="SET NULL")), sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()), sa.UniqueConstraint("batch_id", "name", name="uq_college_section_name"))
+    op.create_index("ix_college_sections_batch_id", "college_sections", ["batch_id"])
+    op.add_column("student_profiles", sa.Column("college_batch_id", sa.Uuid(), sa.ForeignKey("college_batches.id", ondelete="SET NULL"), nullable=True)); op.add_column("student_profiles", sa.Column("college_section_id", sa.Uuid(), sa.ForeignKey("college_sections.id", ondelete="SET NULL"), nullable=True)); op.create_index("ix_student_profiles_college_batch_id", "student_profiles", ["college_batch_id"]); op.create_index("ix_student_profiles_college_section_id", "student_profiles", ["college_section_id"])
+    op.create_table("college_course_allocations", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("college_id", sa.Uuid(), sa.ForeignKey("colleges.id", ondelete="CASCADE"), nullable=False), sa.Column("course_id", sa.Uuid(), sa.ForeignKey("courses.id", ondelete="CASCADE"), nullable=False), sa.Column("program_id", sa.Uuid(), sa.ForeignKey("programs.id"), nullable=False), sa.Column("batch_id", sa.Uuid(), sa.ForeignKey("college_batches.id", ondelete="CASCADE")), sa.Column("faculty_id", sa.Uuid(), sa.ForeignKey("college_faculty.id", ondelete="SET NULL")), sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()), sa.UniqueConstraint("college_id", "course_id", "program_id", "batch_id", name="uq_college_course_allocation"))
+    for col in ("college_id", "course_id", "program_id", "batch_id"): op.create_index(f"ix_college_course_allocations_{col}", "college_course_allocations", [col])
+    op.create_table("college_certificate_requests", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("college_id", sa.Uuid(), sa.ForeignKey("colleges.id", ondelete="CASCADE"), nullable=False), sa.Column("enrollment_id", sa.Uuid(), sa.ForeignKey("course_enrollments.id", ondelete="CASCADE"), nullable=False), sa.Column("requested_by_user_id", sa.Uuid(), sa.ForeignKey("users.id"), nullable=False), sa.Column("status", sa.String(30), nullable=False, server_default="pending"), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()), sa.UniqueConstraint("college_id", "enrollment_id", name="uq_college_certificate_request"))
+    op.create_index("ix_college_certificate_requests_college_id", "college_certificate_requests", ["college_id"]); op.create_index("ix_college_certificate_requests_enrollment_id", "college_certificate_requests", ["enrollment_id"]); op.create_index("ix_college_certificate_requests_status", "college_certificate_requests", ["status"])
+    op.create_table("college_audit_logs", sa.Column("id", sa.Uuid(), primary_key=True), sa.Column("college_id", sa.Uuid(), sa.ForeignKey("colleges.id", ondelete="CASCADE"), nullable=False), sa.Column("actor_user_id", sa.Uuid(), sa.ForeignKey("users.id"), nullable=False), sa.Column("action", sa.String(80), nullable=False), sa.Column("entity_type", sa.String(50), nullable=False), sa.Column("entity_id", sa.String(80)), sa.Column("details", sa.JSON(), nullable=False, server_default="{}"), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()))
+    op.create_index("ix_college_audit_logs_college_id", "college_audit_logs", ["college_id"]); op.create_index("ix_college_audit_logs_actor_user_id", "college_audit_logs", ["actor_user_id"]); op.create_index("ix_college_audit_logs_action", "college_audit_logs", ["action"]); op.create_index("ix_college_audit_logs_created_at", "college_audit_logs", ["created_at"])
+
+
+def downgrade() -> None:
+    op.drop_table("college_audit_logs"); op.drop_table("college_certificate_requests"); op.drop_table("college_course_allocations")
+    op.drop_index("ix_student_profiles_college_section_id", table_name="student_profiles"); op.drop_index("ix_student_profiles_college_batch_id", table_name="student_profiles"); op.drop_column("student_profiles", "college_section_id"); op.drop_column("student_profiles", "college_batch_id")
+    op.drop_table("college_sections"); op.drop_table("college_batches"); op.drop_table("college_faculty")
+    op.drop_column("colleges", "logo_url"); op.drop_column("colleges", "website_url")
