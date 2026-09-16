@@ -133,6 +133,7 @@ export function FileDropZone({ label, required, file, onFile, onRemove }: {
     setTimeout(() => onFile({ name: f.name, size: f.size, status: "done" }), 1200);
   };
   const fmt = (b: number) => b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${(b / 1e3).toFixed(0)} KB`;
+  const handleDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) simulate(f); }, [simulate]);
   return (
     <Field label={label} required={required}>
       {file ? (
@@ -147,7 +148,7 @@ export function FileDropZone({ label, required, file, onFile, onRemove }: {
         </div>
       ) : (
         <div onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
-          onDrop={useCallback((e: React.DragEvent) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) simulate(f); }, [])}
+          onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
           className={`flex flex-col items-center gap-1.5 p-5 border-2 border-dashed rounded-[10px] cursor-pointer transition-all ${dragging ? "border-[#1B3A6B] bg-[#EBF1FA]" : "border-slate-200 bg-white hover:border-[#1B3A6B] hover:bg-[#EBF1FA]/50"}`}>
           <Upload size={18} className="text-[#5A6A8A]" />

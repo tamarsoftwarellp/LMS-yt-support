@@ -45,6 +45,24 @@ const NAV = [
   ["certificates", "Certificates", Award],
   ["reports", "Reports", Download],
 ] as const;
+const TAB_PATH: Record<Tab, string> = {
+  dashboard: "/college-admin/dashboard",
+  profile: "/college-admin/profile",
+  programs: "/college-admin/programs",
+  students: "/college-admin/students",
+  batches: "/college-admin/batches",
+  faculty: "/college-admin/faculty",
+  courses: "/college-admin/courses",
+  progress: "/college-admin/progress",
+  certificates: "/college-admin/certificates",
+  reports: "/college-admin/reports",
+};
+function tabFromPath(pathname: string): Tab {
+  const match = (Object.entries(TAB_PATH) as [Tab, string][]).find(
+    ([, path]) => pathname === path,
+  );
+  return match?.[0] || "dashboard";
+}
 function Empty({ text }: { text: string }) {
   return <p className="py-10 text-center text-[12px] text-[#9AA5BE]">{text}</p>;
 }
@@ -268,9 +286,8 @@ function Programs() {
               disabled={x.offered && x.student_count > 0}
               onClick={async () => {
                 try {
-                  x.offered
-                    ? await api.removeInstitutionProgram(x.id)
-                    : await api.addInstitutionProgram(x.id);
+                  if (x.offered) await api.removeInstitutionProgram(x.id);
+                  else await api.addInstitutionProgram(x.id);
                   await load();
                 } catch (e) {
                   toast.error((e as Error).message);
@@ -772,10 +789,13 @@ function Courses() {
           </div>
           <button
             onClick={async () => {
-              x.is_active
-                ? await api.removeCourseAllocation(x.id)
-                : await api.restoreCourseAllocation(x.id);
-              await load();
+              try {
+                if (x.is_active) await api.removeCourseAllocation(x.id);
+                else await api.restoreCourseAllocation(x.id);
+                await load();
+              } catch (e) {
+                toast.error((e as Error).message);
+              }
             }}
           >
             {x.is_active ? (
@@ -953,7 +973,23 @@ function Reports() {
 }
 
 export function InstitutionManagement({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() => tabFromPath(window.location.pathname));
+  const navigateTab = (next: Tab) => {
+    if (window.location.pathname !== TAB_PATH[next])
+      window.history.pushState({}, "", TAB_PATH[next]);
+    setTab(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  useEffect(() => {
+    if (
+      window.location.pathname === "/college-admin" ||
+      window.location.pathname === "/college-admin/"
+    )
+      window.history.replaceState({}, "", TAB_PATH.dashboard);
+    const restore = () => setTab(tabFromPath(window.location.pathname));
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
   const content: Record<Tab, React.ReactNode> = {
     dashboard: <Dashboard />,
     profile: <Profile />,
@@ -990,7 +1026,7 @@ export function InstitutionManagement({ onClose }: { onClose: () => void }) {
             {NAV.map(([k, l, I]) => (
               <button
                 key={k}
-                onClick={() => setTab(k)}
+                onClick={() => navigateTab(k)}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-[12px] mb-1 ${tab === k ? "bg-[#1B3A6B] text-white" : "hover:bg-[#F4F7FC]"}`}
               >
                 <I size={15} />

@@ -33,9 +33,13 @@ import {
   Mail,
   Smartphone,
   Building2,
+  Code2,
+  Play,
 } from "lucide-react";
 import { InstitutionManagement } from "./institution-management";
 import { SuperAdminPanel as InstitutionApprovalPanel } from "./super-admin";
+import { CodeEditor } from "./monaco-code-editor";
+import { runCodingTests } from "./code-runner";
 import {
   archiveCourse,
   createCourse,
@@ -56,6 +60,9 @@ import {
   loadAdminQuiz,
   saveAdminQuiz,
   publishAdminQuiz,
+  loadAdminCoding,
+  saveAdminCoding,
+  publishAdminCoding,
   loadAdminAssignment,
   saveAdminAssignment,
   publishAdminAssignment,
@@ -75,6 +82,7 @@ import {
   type LessonInput,
   type LessonType,
   type AdminQuizInput,
+  type AdminCodingInput,
   type AdminAssignmentInput,
   type AdminAssignmentSubmission,
   type AdminAnalyticsOverview,
@@ -91,6 +99,7 @@ const LESSON_META: Record<
   article: { label: "Article", icon: AlignLeft },
   quiz: { label: "Quiz", icon: HelpCircle },
   assignment: { label: "Assignment", icon: Paperclip },
+  coding: { label: "Coding Test", icon: Code2 },
 };
 const STATUS_BADGE: Record<CourseStatus, string> = {
   draft: "bg-slate-100 text-slate-700 border-slate-200",
@@ -459,6 +468,297 @@ function QuizBuilder({
   );
 }
 
+const blankTestCaseDraft = (): { inputText: string; expectedText: string } => ({
+  inputText: "[]",
+  expectedText: "",
+});
+
+function CodingBuilder({
+  lessonId,
+  onClose,
+}: {
+  lessonId: string;
+  onClose: () => void;
+}) {
+  const [challengeId, setChallengeId] = useState("");
+  const [status, setStatus] = useState("draft");
+  const [instructions, setInstructions] = useState(
+    "Implement the function described below so it passes every test case.",
+  );
+  const [functionName, setFunctionName] = useState("solve");
+  const [starterCode, setStarterCode] = useState(
+    "function solve() {\n  \n}",
+  );
+  const [maximumAttempts, setMaximumAttempts] = useState(10);
+  const [testCases, setTestCases] = useState<
+    { inputText: string; expectedText: string }[]
+  >([blankTestCaseDraft()]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<Awaited<
+    ReturnType<typeof runCodingTests>
+  > | null>(null);
+
+  useEffect(() => {
+    loadAdminCoding(lessonId)
+      .then((c) => {
+        if (c) {
+          setChallengeId(c.id);
+          setStatus(c.status);
+          setInstructions(c.instructions);
+          setFunctionName(c.function_name);
+          setStarterCode(c.starter_code);
+          setMaximumAttempts(c.maximum_attempts);
+          setTestCases(
+            c.test_cases.length
+              ? c.test_cases.map((tc) => ({
+                  inputText: JSON.stringify(tc.input),
+                  expectedText: JSON.stringify(tc.expected),
+                }))
+              : [blankTestCaseDraft()],
+          );
+        }
+      })
+      .catch((e) => setError(errText(e)));
+  }, [lessonId]);
+
+  const parseTestCases = ():
+    | { ok: true; value: { input: unknown[]; expected: unknown }[] }
+    | { ok: false; error: string } => {
+    try {
+      const value = testCases.map((tc) => ({
+        input: JSON.parse(tc.inputText || "[]"),
+        expected: JSON.parse(
+          tc.expectedText === "" ? "null" : tc.expectedText,
+        ),
+      }));
+      return { ok: true, value };
+    } catch {
+      return {
+        ok: false,
+        error:
+          "Test case inputs and expected values must be valid JSON — e.g. inputs [1, 2] and expected 3.",
+      };
+    }
+  };
+
+  const save = async () => {
+    const parsed = parseTestCases();
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const payload: AdminCodingInput = {
+        instructions,
+        function_name: functionName,
+        starter_code: starterCode,
+        maximum_attempts: maximumAttempts,
+        test_cases: parsed.value,
+      };
+      const c = await saveAdminCoding(lessonId, payload);
+      setChallengeId(c.id);
+      setStatus(c.status);
+      toast.success("Coding test draft saved");
+    } catch (e) {
+      const message = errText(e);
+      setError(message);
+      toast.error("Unable to save coding test", { description: message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const publish = async () => {
+    if (!challengeId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const c = await publishAdminCoding(challengeId);
+      setStatus(c.status);
+      toast.success("Coding test published");
+    } catch (e) {
+      const message = errText(e);
+      setError(message);
+      toast.error("Unable to publish coding test", { description: message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const testStarterCode = async () => {
+    const parsed = parseTestCases();
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    setRunning(true);
+    setError("");
+    setRunResult(null);
+    try {
+      setRunResult(
+        await runCodingTests(starterCode, functionName, parsed.value),
+      );
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#071326]/70 p-5 overflow-y-auto">
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl p-6 space-y-5">
+        <div className="flex justify-between">
+          <div>
+            <p className="text-[11px] uppercase text-[#9AA5BE]">
+              Coding Test Builder · {status}
+            </p>
+            <h2 className="text-[20px] font-bold">
+              Configure coding challenge
+            </h2>
+          </div>
+          <button onClick={onClose} className="text-[13px]">
+            Close
+          </button>
+        </div>
+        {error && (
+          <div className="p-3 bg-red-50 text-red-700 rounded-xl text-[12px]">
+            {error}
+          </div>
+        )}
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          rows={3}
+          className="w-full p-3 border rounded-xl"
+          placeholder="Instructions shown to students"
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-[12px]">
+            Function name
+            <input
+              value={functionName}
+              onChange={(e) => setFunctionName(e.target.value)}
+              className="w-full p-2 border rounded-lg mt-1 font-mono"
+            />
+          </label>
+          <label className="text-[12px]">
+            Maximum attempts
+            <input
+              type="number"
+              min={1}
+              value={maximumAttempts}
+              onChange={(e) => setMaximumAttempts(Number(e.target.value))}
+              className="w-full p-2 border rounded-lg mt-1"
+            />
+          </label>
+        </div>
+        <div>
+          <p className="text-[12px] font-semibold mb-1.5">
+            Starter code (shown to students)
+          </p>
+          <CodeEditor value={starterCode} onChange={setStarterCode} height="220px" />
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[13px] font-semibold">Test cases</p>
+            <button
+              onClick={() =>
+                setTestCases((v) => [...v, blankTestCaseDraft()])
+              }
+              className="text-[12px] text-[#1B3A6B] font-semibold"
+            >
+              + Add test case
+            </button>
+          </div>
+          {testCases.map((tc, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+              <div>
+                <p className="text-[11px] text-[#9AA5BE] mb-1">
+                  Inputs (JSON array) — e.g. [1, 2]
+                </p>
+                <input
+                  value={tc.inputText}
+                  onChange={(e) =>
+                    setTestCases((v) =>
+                      v.map((x, j) =>
+                        j === i ? { ...x, inputText: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  className="w-full p-2 border rounded-lg font-mono text-[12.5px]"
+                />
+              </div>
+              <div>
+                <p className="text-[11px] text-[#9AA5BE] mb-1">
+                  Expected output (JSON) — e.g. 3
+                </p>
+                <input
+                  value={tc.expectedText}
+                  onChange={(e) =>
+                    setTestCases((v) =>
+                      v.map((x, j) =>
+                        j === i ? { ...x, expectedText: e.target.value } : x,
+                      ),
+                    )
+                  }
+                  className="w-full p-2 border rounded-lg font-mono text-[12.5px]"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  setTestCases((v) => v.filter((_, j) => j !== i))
+                }
+                className="p-2 text-red-600 self-end"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+        {runResult && (
+          <div className="p-3 bg-slate-50 rounded-xl text-[12px] space-y-1">
+            <p className="font-semibold">
+              {runResult.passedCount}/{runResult.totalCount} passed running
+              the starter code
+            </p>
+            {runResult.results.map((r, i) => (
+              <p key={i} className={r.passed ? "text-emerald-700" : "text-red-600"}>
+                Test {i + 1}: {r.passed ? "passed" : r.error || "failed"}
+              </p>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-3 flex-wrap">
+          <button
+            disabled={running}
+            onClick={() => void testStarterCode()}
+            className="flex items-center gap-2 px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+          >
+            <Play size={14} /> {running ? "Running…" : "Test starter code"}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => void save()}
+            className="px-5 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[13px] disabled:opacity-40 flex items-center gap-2"
+          >
+            <Save size={14} /> Save Draft
+          </button>
+          <button
+            disabled={busy || !challengeId}
+            onClick={() => void publish()}
+            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[13px] disabled:opacity-40"
+          >
+            Publish Coding Test
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const blankAssignment: AdminAssignmentInput = {
   instructions:
     "Complete the assignment using the concepts covered in this module.",
@@ -816,7 +1116,7 @@ function SubmissionReview({ onClose }: { onClose: () => void }) {
     loadAssignmentSubmissions()
       .then(setItems)
       .catch((e) => setError(errText(e)));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
   return (
     <div className="fixed inset-0 z-50 bg-[#071326]/70 p-5 overflow-y-auto">
       <div className="max-w-4xl mx-auto bg-white rounded-2xl p-6 space-y-4">
@@ -1032,6 +1332,7 @@ export function LMSAdminSection({
   const [assignmentLessonId, setAssignmentLessonId] = useState<string | null>(
     null,
   );
+  const [codingLessonId, setCodingLessonId] = useState<string | null>(null);
   const [submissionsOpen, setSubmissionsOpen] = useState(
     () => window.location.pathname === "/admin/submissions",
   );
@@ -1054,6 +1355,7 @@ export function LMSAdminSection({
     setSubmissionsOpen(false);
     setCertificatesOpen(false);
     setInstitutionOpen(false);
+    setCollegeRequestsOpen(false);
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1063,6 +1365,7 @@ export function LMSAdminSection({
     setSubmissionsOpen(true);
     setCertificatesOpen(false);
     setInstitutionOpen(false);
+    setCollegeRequestsOpen(false);
     setSidebarOpen(false);
   };
   const openCertificates = () => {
@@ -1071,12 +1374,16 @@ export function LMSAdminSection({
     setCertificatesOpen(true);
     setSubmissionsOpen(false);
     setInstitutionOpen(false);
+    setCollegeRequestsOpen(false);
     setSidebarOpen(false);
   };
   const openCollegeRequests = () => {
     if (window.location.pathname !== "/admin/college-requests")
       window.history.pushState({}, "", "/admin/college-requests");
     setCollegeRequestsOpen(true);
+    setSubmissionsOpen(false);
+    setCertificatesOpen(false);
+    setInstitutionOpen(false);
     setSidebarOpen(false);
   };
   const closeOverlay = () => navigateAdmin(adminPage);
@@ -1148,6 +1455,7 @@ export function LMSAdminSection({
       setSubmissionsOpen(path === "/admin/submissions");
       setCertificatesOpen(path === "/admin/certificates");
       setInstitutionOpen(path === "/admin/institution");
+      setCollegeRequestsOpen(path === "/admin/college-requests");
       const id = path.match(/^\/admin\/courses\/([^/]+)$/)?.[1];
       if (id && id !== "new") void loadDetail(id);
     };
@@ -1155,8 +1463,8 @@ export function LMSAdminSection({
     return () => window.removeEventListener("popstate", restore);
   }, []);
   useEffect(() => {
-    document.title = `${submissionsOpen ? "Submissions" : certificatesOpen ? "Certificates" : institutionOpen ? "Institution" : adminPage === "add-course" ? "Add Course" : adminPage === "courses" ? "Courses" : "Dashboard"} | EduConnect Admin`;
-  }, [adminPage, submissionsOpen, certificatesOpen, institutionOpen]);
+    document.title = `${submissionsOpen ? "Submissions" : certificatesOpen ? "Certificates" : institutionOpen ? "Institution" : collegeRequestsOpen ? "College Requests" : adminPage === "add-course" ? "Add Course" : adminPage === "courses" ? "Courses" : "Dashboard"} | EduConnect Admin`;
+  }, [adminPage, submissionsOpen, certificatesOpen, institutionOpen, collegeRequestsOpen]);
   useEffect(() => {
     loadAdminAnalytics()
       .then(setAnalytics)
@@ -1554,6 +1862,12 @@ export function LMSAdminSection({
         <AssignmentBuilder
           lessonId={assignmentLessonId}
           onClose={() => setAssignmentLessonId(null)}
+        />
+      )}
+      {codingLessonId && (
+        <CodingBuilder
+          lessonId={codingLessonId}
+          onClose={() => setCodingLessonId(null)}
         />
       )}
       {submissionsOpen && <SubmissionReview onClose={closeOverlay} />}
@@ -2643,6 +2957,16 @@ export function LMSAdminSection({
                                         className="mt-2 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-[11px] font-semibold"
                                       >
                                         Configure Assignment
+                                      </button>
+                                    )}
+                                    {lesson.lesson_type === "coding" && (
+                                      <button
+                                        onClick={() =>
+                                          setCodingLessonId(lesson.id)
+                                        }
+                                        className="mt-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-[11px] font-semibold"
+                                      >
+                                        Configure Coding Test
                                       </button>
                                     )}
                                   </div>

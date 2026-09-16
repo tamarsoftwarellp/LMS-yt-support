@@ -1,18 +1,46 @@
-import { useEffect, useState } from "react";
-import { CollegeRegister } from "../components/college-register";
-import { StudentCareerPortal } from "../components/student-career-portal";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { HomePage } from "../components/home";
-import { FSDPage } from "../components/fsd";
 import { StudentLogin, AdminLogin, StudentRegister } from "../components/auth";
-import { LMSAdminSection } from "../components/lms-admin";
-import { InstitutionManagement } from "../components/institution-management";
-import { ProjectPromptPage } from "../components/project-prompt";
-import { LMSModule } from "../components/lms";
-import { SRSPage } from "../components/srs";
 import { hasStudentSession, logoutStudent } from "../api/student-auth";
 import { hasAdminSession, logoutAdmin } from "../api/admin-lms";
 import { CertificateVerification } from "../components/certificate-verification";
 import { getStaffRole } from "../api/super-admin";
+
+// Lazily loaded: each of these pulls in a large, route-specific module
+// that most visitors never touch in a given session, so keeping them
+// out of the initial bundle is a straightforward win for first-load size.
+const CollegeRegister = lazy(() =>
+  import("../components/college-register").then((m) => ({ default: m.CollegeRegister })),
+);
+const StudentCareerPortal = lazy(() =>
+  import("../components/student-career-portal").then((m) => ({ default: m.StudentCareerPortal })),
+);
+const FSDPage = lazy(() =>
+  import("../components/fsd").then((m) => ({ default: m.FSDPage })),
+);
+const LMSAdminSection = lazy(() =>
+  import("../components/lms-admin").then((m) => ({ default: m.LMSAdminSection })),
+);
+const InstitutionManagement = lazy(() =>
+  import("../components/institution-management").then((m) => ({ default: m.InstitutionManagement })),
+);
+const ProjectPromptPage = lazy(() =>
+  import("../components/project-prompt").then((m) => ({ default: m.ProjectPromptPage })),
+);
+const LMSModule = lazy(() =>
+  import("../components/lms").then((m) => ({ default: m.LMSModule })),
+);
+const SRSPage = lazy(() =>
+  import("../components/srs").then((m) => ({ default: m.SRSPage })),
+);
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen grid place-items-center bg-[#F2F5FC] text-[13px] text-[#5A6A8A]">
+      Loading…
+    </div>
+  );
+}
 
 function StaffRoleGuard({ required, onResolved, children }: { required: "lms_admin" | "college_admin"; onResolved: (role: "lms_admin" | "college_admin" | null) => void; children: React.ReactNode }) {
   const [allowed, setAllowed] = useState(false);
@@ -78,6 +106,14 @@ function modeFromPath(pathname: string): Mode {
 }
 
 export default function App() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <AppInner />
+    </Suspense>
+  );
+}
+
+function AppInner() {
   const verificationToken = window.location.pathname.match(
     /^\/verify-certificate\/([^/]+)$/,
   )?.[1];

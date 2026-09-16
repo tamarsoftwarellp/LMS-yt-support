@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { AlertCircle, Award, Check } from "lucide-react";
-import { loadStudentAssignment, loadStudentQuiz, saveAssignmentSubmission, startQuizAttempt, submitQuizAttempt } from "../api/student-career";
+import { AlertCircle, Award, Check, Play, X } from "lucide-react";
+import { loadStudentAssignment, loadStudentCoding, loadStudentQuiz, saveAssignmentSubmission, startQuizAttempt, submitCodingChallenge, submitQuizAttempt } from "../api/student-career";
 import type { Lesson } from "./course-player";
+import { CodeEditor } from "./monaco-code-editor";
+import { runCodingTests, type RunResult } from "./code-runner";
 
 export function Notice({ error, success }: { error?: string; success?: string }) {
   if (!error && !success) return null;
@@ -35,7 +37,7 @@ export function LiveAssignment({ lesson, onPassed }: { lesson: Lesson; onPassed:
   const [text, setText] = useState(""); const [link, setLink] = useState(""); const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [success, setSuccess] = useState("");
   const load = () => loadStudentAssignment(lesson.id).then(value => { setAssignment(value); setText(value.latest_submission?.status === "draft" ? value.latest_submission.text_content || "" : ""); setLink(value.latest_submission?.status === "draft" ? value.latest_submission.link_url || "" : ""); if (value.latest_submission?.evaluation?.decision === "passed") onPassed(); }).catch(e => setError(e.message));
-  useEffect(load, [lesson.id]);
+  useEffect(() => { load(); }, [lesson.id]);
   const save = async (status: "draft" | "submitted") => { if (!assignment) return; setBusy(true); setError(""); setSuccess(""); try { await saveAssignmentSubmission(assignment.id, { status, text, link, file }); setSuccess(status === "draft" ? "Draft saved." : "Assignment submitted for evaluation."); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Unable to save assignment"); } finally { setBusy(false); } };
   if (error && !assignment) return <Notice error={error} />;
   if (!assignment) return <div className="p-8 text-center text-[13px]">Loading assignment…</div>;
@@ -56,4 +58,145 @@ export function LiveAssignment({ lesson, onPassed }: { lesson: Lesson; onPassed:
       <div className="flex gap-3"><button disabled={busy} onClick={() => save("draft")} className="px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50">Save Draft</button><button disabled={busy} onClick={() => save("submitted")} className="flex-1 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12.5px] font-semibold disabled:opacity-50">{busy ? "Submitting…" : "Submit Assignment"}</button></div>
     </div>}
   </div>;
+}
+
+export function LiveCoding({ lesson, onPassed }: { lesson: Lesson; onPassed: () => void }) {
+  const [challenge, setChallenge] = useState<Awaited<ReturnType<typeof loadStudentCoding>> | null>(null);
+  const [code, setCode] = useState("");
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState<Awaited<ReturnType<typeof submitCodingChallenge>> | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    loadStudentCoding(lesson.id)
+      .then((data) => {
+        setChallenge(data);
+        setCode(data.last_code || data.starter_code);
+        if (data.passed) onPassed();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Unable to load coding test"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson.id]);
+
+  const run = async () => {
+    if (!challenge) return;
+    setRunning(true);
+    setError("");
+    setRunResult(null);
+    try {
+      setRunResult(await runCodingTests(code, challenge.function_name, challenge.test_cases));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to run tests");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!challenge || !runResult) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const result = await submitCodingChallenge(challenge.id, {
+        code,
+        passed_count: runResult.passedCount,
+        total_count: runResult.totalCount,
+      });
+      setSubmitResult(result);
+      if (result.passed) onPassed();
+      setChallenge(await loadStudentCoding(lesson.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to submit coding test");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (error && !challenge) return <Notice error={error} />;
+  if (!challenge) return <div className="p-8 text-center text-[13px] text-[#5A6A8A]">Loading coding test…</div>;
+
+  if (submitResult?.passed) {
+    return (
+      <div className="p-8 rounded-2xl text-center border bg-emerald-50 border-emerald-200">
+        <Award size={34} className="mx-auto text-emerald-600" />
+        <h3 className="text-[20px] font-bold mt-3">All tests passed!</h3>
+        <p className="text-[13px] mt-2">
+          {submitResult.passed_count}/{submitResult.total_count} test cases passed.
+        </p>
+        {submitResult.certificate_issued && (
+          <p className="text-[12.5px] text-emerald-700 mt-3 font-semibold">
+            Certificate {submitResult.certificate_issued.certificate_number} issued — course
+            complete!
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Notice error={error} />
+      <div className="p-5 bg-white rounded-2xl border border-slate-200">
+        <h3 className="text-[17px] font-semibold">Coding challenge</h3>
+        <p className="text-[13px] text-[#5A6A8A] mt-2 whitespace-pre-wrap">
+          {challenge.instructions}
+        </p>
+        <div className="flex gap-4 mt-4 text-[12px] text-[#5A6A8A] flex-wrap">
+          <span>
+            Function: <code className="font-mono">{challenge.function_name}</code>
+          </span>
+          <span>{challenge.test_cases.length} test cases</span>
+          <span>{challenge.remaining_attempts} attempts left</span>
+        </div>
+      </div>
+      <CodeEditor value={code} onChange={setCode} />
+      <div className="flex gap-3">
+        <button
+          disabled={running || challenge.remaining_attempts === 0}
+          onClick={() => void run()}
+          className="flex items-center gap-2 px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+        >
+          <Play size={14} /> {running ? "Running…" : "Run Tests"}
+        </button>
+        <button
+          disabled={submitting || !runResult || challenge.remaining_attempts === 0}
+          onClick={() => void submit()}
+          className="flex-1 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+        >
+          {submitting ? "Submitting…" : "Submit"}
+        </button>
+      </div>
+      {runResult && (
+        <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2">
+          <p className="text-[12.5px] font-semibold">
+            {runResult.passedCount}/{runResult.totalCount} test cases passed
+          </p>
+          {runResult.results.map((r, i) => (
+            <div
+              key={i}
+              className={`flex items-start gap-2 p-2.5 rounded-lg text-[12px] ${r.passed ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
+            >
+              {r.passed ? (
+                <Check size={13} className="mt-0.5 shrink-0" />
+              ) : (
+                <X size={13} className="mt-0.5 shrink-0" />
+              )}
+              <span>
+                Test {i + 1}
+                {r.error ? `: ${r.error}` : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {submitResult && !submitResult.passed && (
+        <p className="text-[12.5px] text-amber-700">
+          Not all tests passed yet ({submitResult.passed_count}/{submitResult.total_count}). Keep
+          trying — {challenge.remaining_attempts} attempts left.
+        </p>
+      )}
+    </div>
+  );
 }

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .admin_course_router import router as admin_course_router
 from .quiz_router import admin_router as admin_quiz_router, student_router as student_quiz_router
+from .coding_router import admin_router as admin_coding_router, student_router as student_coding_router
 from .assignment_router import admin_router as admin_assignment_router, student_router as student_assignment_router
 from .analytics_router import admin_router as admin_analytics_router, student_router as student_analytics_router
 from .certificate_router import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
@@ -50,6 +51,8 @@ app.include_router(career_router)
 app.include_router(admin_course_router)
 app.include_router(admin_quiz_router)
 app.include_router(student_quiz_router)
+app.include_router(admin_coding_router)
+app.include_router(student_coding_router)
 app.include_router(admin_assignment_router)
 app.include_router(student_assignment_router)
 app.include_router(admin_analytics_router)

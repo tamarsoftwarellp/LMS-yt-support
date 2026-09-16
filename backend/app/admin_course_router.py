@@ -33,7 +33,7 @@ from .models import Course, CourseEnrollment, CourseLesson, CourseSection, User
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin LMS"])
 COURSE_STATUSES = {"draft", "published", "archived"}
-LESSON_TYPES = {"video", "article", "quiz", "assignment"}
+LESSON_TYPES = {"video", "article", "quiz", "assignment", "coding"}
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 YOUTUBE_URL_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/|embed/|v/))([A-Za-z0-9_-]{11})",
@@ -171,6 +171,8 @@ def _course_issues(course: Course) -> list[str]:
                 issues.append(f"Quiz lesson '{lesson.title}' requires a published quiz")
             if lesson.lesson_type == "assignment" and (not lesson.assignment or lesson.assignment.status != "published"):
                 issues.append(f"Assignment lesson '{lesson.title}' requires a published assignment")
+            if lesson.lesson_type == "coding" and (not lesson.coding_challenge or lesson.coding_challenge.status != "published"):
+                issues.append(f"Coding-test lesson '{lesson.title}' requires a published coding challenge")
             expected_lesson_sequence += 1
         expected_section_sequence += 1
     return issues

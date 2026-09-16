@@ -81,8 +81,8 @@ export function FSDPage({ onBack, onPrompt, onSRS }: { onBack: () => void; onPro
         bottom: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         left:   { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         right:  { style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideH:{ style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideV:{ style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideHorizontal:{ style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideVertical:{ style: BorderStyle.SINGLE, size: 1, color: borderColor },
       },
     });
   };
@@ -716,8 +716,6 @@ export function FSDPage({ onBack, onPrompt, onSRS }: { onBack: () => void; onPro
             ["File / Component",        "Key State Variables"],
             [
               ["App.tsx",               "mode: 'home'|'college'|'student'|'lms'|'fsd'|'student-login'|'admin-login'|'student-register'|'super-admin'|'project-prompt'"],
-              ["CollegePortal",          "step: 1-9"],
-              ["StudentPortal",          "step: 1-8"],
               ["StudentLogin",           "tab, email, pwd, phone, otp, otpSent, loading, error, remember"],
               ["AdminLogin",             "email, pwd, role, twoFA, otp, loading, error"],
               ["StudentRegister",        "step, all form fields, emailVerified, phoneVerified, terms"],
@@ -728,11 +726,6 @@ export function FSDPage({ onBack, onPrompt, onSRS }: { onBack: () => void; onPro
               ["CollegesSection",        "search, filter, selected (College|null)"],
               ["AuditSection",           "typeFilter"],
               ["SettingsSection",        "flags: Record<string, boolean>"],
-              ["SS3 AI Assessment",      "analyzing, analyzed, scores{}, interests[], tab"],
-              ["SS6 Roadmap",            "generating, generated"],
-              ["SSSkillVerify",          "skills[], selectedId, filter, quizStep, quizScore, ghUrl, ghResult, mentorSent, adminSent, codeSubmitted"],
-              ["SSCVGenerator",          "cvData{}, exporting"],
-              ["SS8 Dashboard",          "activeNotifs[], cvTab"],
             ],
             [3200, 5800]
           ),
@@ -747,11 +740,6 @@ export function FSDPage({ onBack, onPrompt, onSRS }: { onBack: () => void; onPro
             [
               ["src/app/App.tsx",                 "~1KB",  "Root App: mode state + routing only"],
               ["src/components/shared.tsx",        "12KB",  "STEPS config, inputCls, SectionTitle, Field, Input, Select, InfoBox, Tag, OTPInput, FileDropZone, Toggle"],
-              ["src/components/college-steps.tsx", "76KB",  "Step1-Step9 (College Portal wizard)"],
-              ["src/components/student-steps.tsx", "80KB",  "CircleGauge, TagInput, ProgressBar, SS1-SS6"],
-              ["src/components/skill-verify.tsx",  "32KB",  "SSSkillVerify: 6-method skill verification"],
-              ["src/components/cv-generator.tsx",  "40KB",  "SSCVGenerator: ATS CV builder + docx export"],
-              ["src/components/portals.tsx",       "20KB",  "StudentPortal, CollegePortal, STUDENT_STEPS, STUDENT_PHASES"],
               ["src/components/home.tsx",          "32KB",  "HomePage: full marketing landing page"],
               ["src/components/fsd.tsx",           "44KB+", "FSDPage: this document, Word export via docx + file-saver"],
               ["src/components/auth.tsx",          "36KB",  "StudentLogin, AdminLogin, StudentRegister"],

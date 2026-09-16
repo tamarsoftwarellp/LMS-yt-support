@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { loginWithGoogle } from "../auth/google";
 import {
   getColleges,
   getPrograms,
@@ -124,41 +123,6 @@ function PwdInput({
   );
 }
 
-function Divider({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-3 my-2">
-      <div className="flex-1 h-px bg-[rgba(27,58,107,0.1)]" />
-      <span className="text-[11.5px] text-[#9AA5BE]">{label}</span>
-      <div className="flex-1 h-px bg-[rgba(27,58,107,0.1)]" />
-    </div>
-  );
-}
-
-// function SocialBtn({ icon, label }: { icon: string; label: string }) {
-//   return (
-//     <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 border border-[rgba(27,58,107,0.15)] rounded-xl text-[13px] font-medium text-[#0F1C3F] hover:bg-[#F4F6FB] transition-colors">
-//       <span className="text-base">{icon}</span>
-//       {label}
-//     </button>
-//   );
-// }
-
-function SocialBtn({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: string;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button onClick={onClick} className="...">
-      {icon} {label}
-    </button>
-  );
-}
-
 function FieldLabel({
   label,
   required,
@@ -183,55 +147,6 @@ function ErrorMsg({ msg }: { msg: string }) {
   );
 }
 
-// ─── OTP inline ──────────────────────────────────────────────────────────────
-
-function OTPRow({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const refs: React.RefObject<HTMLInputElement>[] = Array.from(
-    { length: 6 },
-    () => ({ current: null }),
-  );
-  const digits = value.split("").concat(Array(6).fill("")).slice(0, 6);
-  const set = (i: number, v: string) => {
-    const d = v.replace(/\D/, "").slice(-1);
-    const nx = [...digits];
-    nx[i] = d;
-    onChange(nx.join(""));
-    if (d && i < 5) refs[i + 1].current?.focus();
-  };
-  const onKey = (i: number, e: React.KeyboardEvent) => {
-    if (e.key === "Backspace" && !digits[i] && i > 0)
-      refs[i - 1].current?.focus();
-  };
-  return (
-    <div className="flex gap-2 justify-center">
-      {digits.map((d, i) => (
-        <input
-          key={i}
-          ref={refs[i]}
-          type="text"
-          inputMode="numeric"
-          maxLength={1}
-          value={d}
-          onChange={(e) => set(i, e.target.value)}
-          onKeyDown={(e) => onKey(i, e)}
-          className="w-11 h-12 text-center text-[18px] font-semibold rounded-xl outline-none transition-all"
-          style={{
-            fontFamily: "var(--font-mono)",
-            border: `2px solid ${d ? "#1B3A6B" : "#CBD5E1"}`,
-            background: d ? "#EBF1FA" : "white",
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
 // ─── STUDENT LOGIN ───────────────────────────────────────────────────────────
 
 export function StudentLogin({
@@ -243,59 +158,26 @@ export function StudentLogin({
   onRegister: () => void;
   onSuccess: () => void;
 }) {
-  const [tab, setTab] = useState<"password" | "otp">("password");
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(false);
 
-  const sendOtp = () => {
-    if (!phone.trim()) {
-      setError("Please enter your registered mobile number.");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      setOtpSent(true);
-    }, 1200);
-  };
-
   const submit = async () => {
     setError("");
-    if (tab === "password") {
-      if (!email || !pwd) {
-        setError("Please fill in all required fields.");
-        return;
-      }
-      setLoading(true);
-      try {
-        await loginStudent(email, pwd);
-        onSuccess();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to sign in.");
-      } finally {
-        setLoading(false);
-      }
-    } else {
-      if (!otpSent) {
-        sendOtp();
-        return;
-      }
-      if (otp.length < 6) {
-        setError("Enter the 6-digit OTP sent to your mobile.");
-        return;
-      }
-      setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
-        onSuccess();
-      }, 1400);
+    if (!email || !pwd) {
+      setError("Please fill in all required fields.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await loginStudent(email, pwd);
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to sign in.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -308,111 +190,44 @@ export function StudentLogin({
       />
 
       <div className="px-8 py-7 space-y-5">
-        {/* tab toggle */}
-        <div className="flex gap-1 p-1 bg-[#F4F6FB] rounded-xl">
-          {(["password"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTab(t);
-                setError("");
-                setOtpSent(false);
-                setOtp("");
-              }}
-              className={`flex-1 py-2 text-[12.5px] font-semibold rounded-lg transition-all ${tab === t ? "bg-white text-[#1B3A6B] shadow-sm" : "text-[#5A6A8A] hover:text-[#1B3A6B]"}`}
-            >
-              {t === "password" ? "Email & Password" : "Mobile OTP"}
-            </button>
-          ))}
-        </div>
         {error && <ErrorMsg msg={error} />}
-        {tab === "password" ? (
-          <>
-            <div>
-              <FieldLabel label="Email Address" required />
-              <div className="relative">
-                <Mail
-                  size={13}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-                />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@college.edu"
-                  className={`${inputCls} pl-9`}
-                />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <FieldLabel label="Password" required />
-                <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
-                  Forgot password?
-                </button>
-              </div>
-              <PwdInput value={pwd} onChange={setPwd} />
-            </div>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-              <button
-                onClick={() => setRemember(!remember)}
-                className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
-                style={{ width: "18px", height: "18px" }}
-              >
-                {remember && <Check size={10} className="text-white" />}
-              </button>
-              <span className="text-[12.5px] text-[#5A6A8A]">
-                Remember me for 30 days
-              </span>
-            </label>
-          </>
-        ) : (
-          <>
-            <div>
-              <FieldLabel label="Registered Mobile Number" required />
-              <div className="flex gap-2">
-                <div className="flex items-center gap-1 px-3 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F]">
-                  🇮🇳 +91
-                </div>
-                <div className="relative flex-1">
-                  <Phone
-                    size={13}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
-                  />
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) =>
-                      setPhone(e.target.value.replace(/\D/, "").slice(0, 10))
-                    }
-                    placeholder="10-digit mobile number"
-                    className={`${inputCls} pl-9`}
-                  />
-                </div>
-              </div>
-            </div>
-            {otpSent && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <FieldLabel label="Enter 6-digit OTP" required />
-                  <button
-                    onClick={() => {
-                      setOtp("");
-                      setOtpSent(false);
-                    }}
-                    className="text-[11.5px] text-[#1B3A6B] hover:underline"
-                  >
-                    Resend
-                  </button>
-                </div>
-                <OTPRow value={otp} onChange={setOtp} />
-                <p className="text-center text-[11.5px] text-[#5A6A8A]">
-                  OTP sent to +91 {phone}
-                </p>
-              </div>
-            )}
-          </>
-        )}
+        <div>
+          <FieldLabel label="Email Address" required />
+          <div className="relative">
+            <Mail
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A6A8A]"
+            />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@college.edu"
+              className={`${inputCls} pl-9`}
+            />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <FieldLabel label="Password" required />
+            <button className="text-[11.5px] text-[#1B3A6B] hover:underline font-medium">
+              Forgot password?
+            </button>
+          </div>
+          <PwdInput value={pwd} onChange={setPwd} />
+        </div>
+        <label className="flex items-center gap-2.5 cursor-pointer select-none">
+          <button
+            onClick={() => setRemember(!remember)}
+            className={`w-4.5 h-4.5 rounded flex items-center justify-center border-2 transition-all ${remember ? "bg-[#1B3A6B] border-[#1B3A6B]" : "border-slate-300"}`}
+            style={{ width: "18px", height: "18px" }}
+          >
+            {remember && <Check size={10} className="text-white" />}
+          </button>
+          <span className="text-[12.5px] text-[#5A6A8A]">
+            Remember me for 30 days
+          </span>
+        </label>
         <button
           onClick={submit}
           disabled={loading}
@@ -423,33 +238,12 @@ export function StudentLogin({
           ) : (
             <LogIn size={15} />
           )}
-          {loading
-            ? "Signing in…"
-            : tab === "otp" && !otpSent
-              ? "Send OTP"
-              : "Sign In"}
+          {loading ? "Signing in…" : "Sign In"}
         </button>
-        {/* Social sign-in stays disabled until it is linked to a backend student account. */}
-        {/* <div className="flex gap-3">
-          <SocialBtn icon="🔵" label="Google" />
-          <SocialBtn icon="💼" label="LinkedIn" />
-        </div> */}
-        <div className="hidden">
-          <SocialBtn
-            icon="🔵"
-            label="Google"
-            onClick={async () => {
-              const user = await loginWithGoogle();
-
-              if (user) {
-                console.log(user);
-
-                // Existing success callback
-                onSuccess();
-              }
-            }}
-          />
-        </div>
+        {/* Social sign-in (Google/LinkedIn) is not wired to a backend
+            session yet — the API has no endpoint to exchange a Firebase
+            user for an app session, so it stays out of the UI until that
+            exists. */}
         <p className="text-center text-[12.5px] text-[#5A6A8A]">
           New to EduConnect?{" "}
           <button
@@ -840,12 +634,9 @@ export function StudentRegister({
                 </p>
               )}
             </div>
-
-            <Divider label="or sign up with" />
-            <div className="flex gap-3">
-              <SocialBtn icon="🔵" label="Google" />
-              <SocialBtn icon="💼" label="LinkedIn" />
-            </div>
+            {/* Social sign-up (Google/LinkedIn) removed for the same reason
+                as StudentLogin: no backend endpoint yet to exchange a
+                Firebase user for an app session. */}
           </>
         )}
 

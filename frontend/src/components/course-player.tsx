@@ -4,12 +4,12 @@ import {
   ArrowLeft, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX,
   CheckCircle2, Lock, ChevronDown, Check, Clock, ChevronLeft, ChevronRight,
   FileText, HelpCircle, Paperclip, Video, AlignLeft, List, MessageSquare,
-  BookOpen, Download, Star, Users, ThumbsUp, Send, X,
+  BookOpen, Download, Star, Users, ThumbsUp, Send, X, Code2,
   Settings, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
-export type LessonType = "video" | "article" | "quiz" | "assignment";
+export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding";
 
 export interface Lesson {
   id: string;
@@ -52,6 +52,7 @@ const lessonIcon: Record<LessonType, React.ElementType> = {
   article: AlignLeft,
   quiz: HelpCircle,
   assignment: Paperclip,
+  coding: Code2,
 };
 
 function fmt(secs: number) {
@@ -188,7 +189,7 @@ function VideoPlayer({ lesson, color, onEnded, onProgress, onAutoCompleted }: { 
   const togglePlay = () => {
     const p = playerRef.current;
     if (!p) return;
-    playing ? p.pauseVideo() : p.playVideo();
+    if (playing) p.pauseVideo(); else p.playVideo();
   };
 
   const skip = (delta: number) => {
@@ -218,7 +219,7 @@ function VideoPlayer({ lesson, color, onEnded, onProgress, onAutoCompleted }: { 
   const toggleMute = () => {
     const p = playerRef.current;
     if (!p) return;
-    muted ? p.unMute() : p.mute();
+    if (muted) p.unMute(); else p.mute();
     setMuted(!muted);
   };
 
@@ -491,9 +492,10 @@ function ArticleView({ lesson }: { lesson: Lesson }) {
 
 function QuizView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This quiz is not configured yet.</div>; }
 function AssignmentView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This assignment is not configured yet.</div>; }
+function CodingView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This coding test is not configured yet.</div>; }
 
 // ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
-export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
+export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment, renderCoding }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderCoding?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
   const allLessons = course.sections.flatMap(s => s.lessons);
   const firstIncomplete = allLessons.find(l => !l.completed && !l.locked) ?? allLessons[0];
   const [activeLesson, setActiveLesson] = useState<Lesson>(firstIncomplete);
@@ -512,7 +514,7 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
   const markDone = (advance=true) => {
     if (!completedIds.includes(activeLesson.id)) {
       setCompletedIds(ids => [...ids, activeLesson.id]);
-      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment") void onLessonComplete?.(activeLesson.id);
+      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding") void onLessonComplete?.(activeLesson.id);
     }
     if (advance&&curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
   };
@@ -624,6 +626,7 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
                 ${activeLesson.type === "video" ? "bg-blue-50 text-blue-700 border-blue-200" :
                   activeLesson.type === "quiz" ? "bg-purple-50 text-purple-700 border-purple-200" :
                   activeLesson.type === "assignment" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                  activeLesson.type === "coding" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
                   "bg-slate-100 text-slate-600 border-slate-200"}`}>
                 <Icon size={10} />
                 {activeLesson.type.charAt(0).toUpperCase() + activeLesson.type.slice(1)}
@@ -641,9 +644,10 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
             {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
             {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView />)}
             {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView />)}
+            {activeLesson.type === "coding" && (renderCoding ? renderCoding(activeLesson, ()=>markDone(true)) : <CodingView />)}
 
             {/* mark complete */}
-            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && (
+            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding" && (
               completedIds.includes(activeLesson.id) ? (
                 <div className="mt-5 flex items-center justify-center gap-2 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-[13.5px] font-semibold">
                   <CheckCircle2 size={16} /> Lesson completed!

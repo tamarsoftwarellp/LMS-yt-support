@@ -5,7 +5,7 @@ const ACCESS_KEY = "educonnect_admin_access";
 const REFRESH_KEY = "educonnect_admin_refresh";
 
 export type CourseStatus = "draft" | "published" | "archived";
-export type LessonType = "video" | "article" | "quiz" | "assignment";
+export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding";
 
 export interface AdminSession {
   access_token: string;
@@ -161,6 +161,21 @@ export interface AdminQuiz {
   questions: AdminQuizQuestion[];
 }
 export type AdminQuizInput = Omit<AdminQuiz, "id" | "lesson_id" | "status">;
+export interface AdminCodingTestCase {
+  input: unknown[];
+  expected: unknown;
+}
+export interface AdminCoding {
+  id: string;
+  lesson_id: string;
+  instructions: string;
+  function_name: string;
+  starter_code: string;
+  maximum_attempts: number;
+  status: "draft" | "published";
+  test_cases: AdminCodingTestCase[];
+}
+export type AdminCodingInput = Omit<AdminCoding, "id" | "lesson_id" | "status">;
 export interface AdminAssignment {
   id: string;
   lesson_id: string;
@@ -474,6 +489,20 @@ export const publishAdminQuiz = (quizId: string) =>
   adminApiRequest<AdminQuiz>(`/api/v1/admin/quizzes/${quizId}/publish`, {
     method: "POST",
   });
+export const loadAdminCoding = (lessonId: string) =>
+  adminApiRequest<AdminCoding | null>(
+    `/api/v1/admin/lessons/${lessonId}/coding`,
+  );
+export const saveAdminCoding = (lessonId: string, payload: AdminCodingInput) =>
+  adminApiRequest<AdminCoding>(`/api/v1/admin/lessons/${lessonId}/coding`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+export const publishAdminCoding = (challengeId: string) =>
+  adminApiRequest<AdminCoding>(
+    `/api/v1/admin/coding-challenges/${challengeId}/publish`,
+    { method: "POST" },
+  );
 export const loadAdminAssignment = (lessonId: string) =>
   adminApiRequest<AdminAssignment | null>(
     `/api/v1/admin/lessons/${lessonId}/assignment`,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CoursePlayer } from "./course-player";
 import type { CourseData } from "./course-player";
-import { LiveAssignment, LiveQuiz, Notice } from "./learning-shared";
+import { LiveAssignment, LiveCoding, LiveQuiz, Notice } from "./learning-shared";
 import {
   BookOpen, LayoutDashboard, GraduationCap, ClipboardList,
   BarChart2, Award, ArrowLeft, Search, Play, CheckCircle2,
@@ -348,7 +348,8 @@ function LMSCoursePlayer({ courseId, onBack }: { courseId: string; onBack: () =>
       onLessonComplete={enrolled.is_enrolled ? async lessonId => { await saveLessonProgress(enrolled.enrollment_id!, lessonId, "completed"); } : undefined}
       onVideoProgress={enrolled.is_enrolled ? async (lessonId, previous, current, duration) => saveLessonProgress(enrolled.enrollment_id!, lessonId, "in_progress", 0, current, previous, duration) : undefined}
       renderQuiz={(lesson, onPassed) => <LiveQuiz lesson={lesson} onPassed={onPassed} />}
-      renderAssignment={(lesson, onPassed) => <LiveAssignment lesson={lesson} onPassed={onPassed} />} />
+      renderAssignment={(lesson, onPassed) => <LiveAssignment lesson={lesson} onPassed={onPassed} />}
+      renderCoding={(lesson, onPassed) => <LiveCoding lesson={lesson} onPassed={onPassed} />} />
   </div>;
 }
 

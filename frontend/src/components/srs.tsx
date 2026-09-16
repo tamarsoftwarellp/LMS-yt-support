@@ -58,8 +58,8 @@ export function SRSPage({ onBack }: { onBack: () => void }) {
         bottom:  { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         left:    { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         right:   { style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideH: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideV: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideVertical: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
       },
     });
   };

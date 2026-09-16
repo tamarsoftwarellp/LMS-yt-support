@@ -82,8 +82,8 @@ export function ProjectPromptPage({ onBack }: { onBack: () => void }) {
         bottom:  { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         left:    { style: BorderStyle.SINGLE, size: 1, color: borderColor },
         right:   { style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideH: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
-        insideV: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
+        insideVertical: { style: BorderStyle.SINGLE, size: 1, color: borderColor },
       },
     });
   };
@@ -126,7 +126,7 @@ LMS ADMIN (lms-admin.tsx — imported by super-admin.tsx): Udemy-style course bu
 
 SHARED COMPONENTS: SectionTitle, Field, Input (with icon), Select (with icon), InfoBox (blue/amber), Tag (pill chip), OTPInput (6-box auto-focus/backspace/paste), FileDropZone (drag-drop + progress), Toggle, CircleGauge (SVG ring), TagInput (chip input), ProgressBar.
 
-FILE SPLIT (to stay under Babel 80KB each): shared.tsx | college-steps.tsx | student-steps.tsx | skill-verify.tsx | cv-generator.tsx | portals.tsx | home.tsx | fsd.tsx | auth.tsx | super-admin.tsx (imports lms-admin.tsx) | lms.tsx (imports course-player.tsx) | course-player.tsx | lms-admin.tsx | project-prompt.tsx | App.tsx (slim root only).
+FILE SPLIT (to stay under Babel 80KB each): shared.tsx | home.tsx | fsd.tsx | auth.tsx | super-admin.tsx (imports lms-admin.tsx) | lms.tsx (imports course-player.tsx) | course-player.tsx | lms-admin.tsx | project-prompt.tsx | App.tsx (slim root only).
 
 Recharts: every child element (CartesianGrid, XAxis, YAxis, Tooltip, Area, Bar, Line, Radar, PolarGrid, PolarAngleAxis) must have an explicit key prop. All linearGradient id attributes must be namespaced per component to avoid collisions.
 
@@ -330,11 +330,6 @@ Install: pnpm add docx file-saver @types/file-saver`;
           codeBlock("FILE SPLIT (all files must stay under 80KB / ~700 lines each):"),
           codeBlock("  src/app/App.tsx              — slim root, mode state + routing only"),
           codeBlock("  src/components/shared.tsx    — STEPS config + all shared components"),
-          codeBlock("  src/components/college-steps.tsx  — Step1-Step9"),
-          codeBlock("  src/components/student-steps.tsx  — SS1-SS6 + CircleGauge/TagInput"),
-          codeBlock("  src/components/skill-verify.tsx   — SSSkillVerify (6 methods)"),
-          codeBlock("  src/components/cv-generator.tsx   — SSCVGenerator + docx export"),
-          codeBlock("  src/components/portals.tsx        — CollegePortal + StudentPortal (+ onLMS prop)"),
           codeBlock("  src/components/home.tsx           — HomePage"),
           codeBlock("  src/components/auth.tsx           — StudentLogin, AdminLogin, StudentRegister"),
           codeBlock("  src/components/super-admin.tsx    — SuperAdminPanel (8 sections, imports lms-admin)"),
@@ -605,8 +600,6 @@ Install: pnpm add docx file-saver @types/file-saver`;
             ["File / Component",          "useState Variables"],
             [
               ["App.tsx",                  "mode: 'home'|'college'|'student'|'lms'|'fsd'|'student-login'|'admin-login'|'student-register'|'super-admin'|'project-prompt'"],
-              ["CollegePortal",             "step: 1-9"],
-              ["StudentPortal",             "step: 1-8"],
               ["StudentLogin",              "tab, email, pwd, phone, otp, otpSent, loading, error, remember"],
               ["AdminLogin",                "email, pwd, role, twoFA, otp, loading, error"],
               ["StudentRegister",           "step:'details'|'verify'|'college'|'done', name, email, phone, pwd, confirmPwd, emailOtp, phoneOtp, emailVerified, phoneVerified, college, dept, year, rollNo, terms, loading, error"],
@@ -621,14 +614,6 @@ Install: pnpm add docx file-saver @types/file-saver`;
               ["StudentsSection",           "search"],
               ["AuditSection",              "typeFilter"],
               ["SettingsSection",           "flags: Record<string,boolean> (10 flags)"],
-              ["SS1 Onboarding",            "tab, email, phone, pwd, confirmPwd, college, emailOtp, phoneOtp, emailVerified, phoneVerified, otpSent"],
-              ["SS2 Profile",               "tab, photo, personal{}, education{}, skills{techSkills,langs,tools,soft}, certs[], experiences[]"],
-              ["SSSkillVerify",             "skills[], selectedId, filter, quizStep, quizAns, quizScore, ghUrl, ghResult, mentorId, mentorSent, adminEvidence, adminSent, codeText, codeSubmitted, projectUrl, projectDesc, projectFile"],
-              ["SS3 AI Assessment",         "tab, interests[], goals, strengths[], weaknesses[], learningStyle, workEnv, personality, scores{6 sliders}, analyzing, analyzed"],
-              ["SS4 Career Goals",          "role, domains[], companies[], city, state, country, workMode, negotiable, minLPA, maxLPA"],
-              ["SS5 AI Roadmap",            "generating, generated"],
-              ["SSCVGenerator",             "cvData{name,email,phone,address,summary,education[],experience[],skills[],certs[],projects[]}, exporting"],
-              ["SS6 Dashboard",             "activeNotifs[], cvTab"],
             ],
             [3000, 6000]
           ),
@@ -645,11 +630,6 @@ Install: pnpm add docx file-saver @types/file-saver`;
               ["src/styles/fonts.css",             "~1KB",  "Google Fonts @import"],
               ["src/styles/theme.css",             "~2KB",  "@theme inline CSS custom property tokens"],
               ["src/components/shared.tsx",        "12KB",  "STEPS, inputCls, SectionTitle, Field, Input, Select, InfoBox, Tag, OTPInput, FileDropZone, Toggle"],
-              ["src/components/college-steps.tsx", "76KB",  "Step1, Step2, Step3, Step4, Step5, Step6, Step7, Step8, Step9"],
-              ["src/components/student-steps.tsx", "80KB",  "CircleGauge, TagInput, ProgressBar, SS1, SS2, SS3, SS4, SS5, SS6"],
-              ["src/components/skill-verify.tsx",  "32KB",  "SSSkillVerify (default export)"],
-              ["src/components/cv-generator.tsx",  "40KB",  "SSCVGenerator (default export) — uses docx"],
-              ["src/components/portals.tsx",       "20KB",  "StudentPortal, CollegePortal, STUDENT_STEPS, STUDENT_PHASES"],
               ["src/components/home.tsx",          "32KB",  "HomePage"],
               ["src/components/auth.tsx",          "36KB",  "StudentLogin, AdminLogin, StudentRegister"],
               ["src/components/super-admin.tsx",   "64KB",  "SuperAdminPanel (8 sections) — uses recharts, imports lms-admin.tsx"],
@@ -665,15 +645,8 @@ Install: pnpm add docx file-saver @types/file-saver`;
           h2("10.1 Import Map"),
           p("Imports flow in one direction only — no circular dependencies:"),
           codeBlock("App.tsx"),
-          codeBlock("  imports: portals.tsx, home.tsx, lms.tsx, fsd.tsx, auth.tsx,"),
+          codeBlock("  imports: home.tsx, lms.tsx, fsd.tsx, auth.tsx,"),
           codeBlock("           super-admin.tsx, project-prompt.tsx"),
-          codeBlock("portals.tsx"),
-          codeBlock("  imports: shared.tsx, college-steps.tsx, student-steps.tsx,"),
-          codeBlock("           skill-verify.tsx, cv-generator.tsx"),
-          codeBlock("college-steps.tsx    imports: shared.tsx"),
-          codeBlock("student-steps.tsx    imports: shared.tsx"),
-          codeBlock("skill-verify.tsx     imports: shared.tsx, student-steps.tsx (TagInput, ProgressBar)"),
-          codeBlock("cv-generator.tsx     imports: shared.tsx, student-steps.tsx (TagInput, CircleGauge)"),
           codeBlock("home.tsx             imports: (self-contained)"),
           codeBlock("auth.tsx             imports: shared.tsx (inputCls only)"),
           codeBlock("super-admin.tsx      imports: lms-admin.tsx, recharts"),
