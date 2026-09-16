@@ -1,0 +1,179 @@
+# EduConnect — Backend
+
+FastAPI + PostgreSQL backend for the EduConnect platform: multi-institution
+student registration, career roadmaps (Groq AI), a full LMS (courses, quizzes,
+assignments, certificates), and a super-admin / college-admin institution
+management layer.
+
+## Tech stack
+
+- *FastAPI* + *Pydantic v2* — API layer
+- *SQLAlchemy 2.0* + *Alembic* — ORM and migrations
+- *PostgreSQL 15+* — database (SQLite is used only by the automated tests)
+- *Argon2* (pwdlib) — password hashing
+- *PyJWT* — access/refresh token auth
+- *Groq* — AI roadmap generation and resume parsing
+- *ReportLab* + *qrcode* — certificate PDF generation
+
+## Prerequisites
+
+- Python 3.12+
+- PostgreSQL 15+ running locally (or a connection string to a hosted instance)
+- (Optional) A [Groq API key](https://console.groq.com) — only needed for AI
+  roadmap generation and the ATS resume builder. Everything else works without it.
+
+## 1. Install dependencies
+
+bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt --break-system-packages   # drop the flag if not needed on your OS
+
+
+## 2. Configure environment
+
+bash
+cp .env.example .env
+
+
+Windows (PowerShell): Copy-Item .env.example .env
+
+Edit .env and set at minimum:
+
+| Variable | What it's for |
+|---|---|
+| DATABASE_URL | PostgreSQL connection string, e.g. postgresql+psycopg://postgres:postgres@localhost:5432/educonnect |
+| JWT_SECRET | Long random string — *must* be changed before any real deployment |
+| CORS_ORIGINS | Frontend origin(s), comma-separated. Defaults to http://localhost:5173 |
+| GROQ_API_KEY | Only required for AI roadmap generation / resume builder |
+
+Create the database itself (once) if it doesn't already exist:
+
+bash
+createdb educonnect
+
+
+## 3. Run migrations
+
+bash
+alembic upgrade head
+
+
+This creates every table — institutions, users, courses, quizzes, assignments,
+certificates, the resume builder, and the institution approval workflow.
+
+## 4. Seed data
+
+*Master data* (a starter set of colleges & programs, used by the student
+registration dropdowns):
+
+bash
+python -m scripts.seed_masters
+
+
+*Platform owner account* (super_admin — approves/rejects/suspends
+institutions):
+
+*macOS/Linux:*
+bash
+SUPER_ADMIN_EMAIL=owner@educonnect.dev \
+SUPER_ADMIN_PASSWORD=ReplaceWithStrongPassword123 \
+SUPER_ADMIN_MOBILE=9876500000 \
+python -m scripts.seed_super_admin
+
+
+*Windows (PowerShell):*
+powershell
+$env:SUPER_ADMIN_EMAIL="owner@educonnect.dev"
+$env:SUPER_ADMIN_PASSWORD="ReplaceWithStrongPassword123"
+$env:SUPER_ADMIN_MOBILE="9876500000"
+python -m scripts.seed_super_admin
+
+
+There is no public sign-up for this role by design — it's always seeded
+directly against the database. The script is idempotent; re-running it with a
+new password just rotates the credentials.
+
+*A standalone college admin* (optional — normally an institution's first
+admin is created automatically when they register via
+POST /api/v1/institutions/register and approved by the super admin; use
+this script only if you need a global admin outside that flow):
+
+*macOS/Linux:*
+bash
+ADMIN_EMAIL=admin@example.com \
+ADMIN_PASSWORD=ReplaceWithStrongPassword123 \
+ADMIN_MOBILE=9876543210 \
+python -m scripts.create_admin
+
+
+*Windows (PowerShell):*
+powershell
+$env:ADMIN_EMAIL="admin@example.com"
+$env:ADMIN_PASSWORD="ReplaceWithStrongPassword123"
+$env:ADMIN_MOBILE="9876543210"
+python -m scripts.create_admin
+
+## 5. Run the server
+
+bash
+uvicorn app.main:app --reload
+
+
+The API is now at http://localhost:8000. Interactive docs (Swagger UI) are
+at http://localhost:8000/docs.
+
+## Running tests
+
+bash
+pytest
+
+
+Tests run against an in-memory SQLite database and don't touch your real
+Postgres instance — no extra setup needed.
+
+## Project structure
+
+
+app/
+  main.py                    Auth (student/admin login), root student endpoints
+  models.py                  All SQLAlchemy models
+  dependencies.py            get_current_student / get_current_admin / get_current_super_admin
+  config.py                  Settings (reads .env)
+
+  institution_router.py      Public college registration + super-admin approve/reject/suspend
+  college_portal_router.py   College admin's own institution profile/programs/students
+
+  career_router.py           Skills, goals, roadmap generation, course catalog, enrollment
+  roadmap_service.py         Groq-powered roadmap + course matching
+  resume_service.py          Resume text extraction (PDF/DOCX)
+  resume_builder_router.py   ATS resume builder (auto-syncs completed courses)
+
+  admin_course_router.py     Course/section/lesson CRUD, publish/archive, analytics
+  quiz_router.py             Quiz builder (admin) + quiz attempts (student)
+  assignment_router.py       Assignment builder, submissions, evaluation, my-assignments
+  certificate_router.py      Certificate issue/revoke/reissue + public verification
+  analytics_router.py        Student learning dashboard / progress
+
+scripts/
+  seed_masters.py            Seed starter colleges & programs
+  seed_super_admin.py        Create/promote the platform-owner account
+  create_admin.py            Create a standalone (non-institution-scoped) admin
+
+alembic/versions/            One migration per feature, run in order
+tests/                       pytest suite (SQLite, no external services needed)
+
+
+## Roles
+
+| Role | Created via | Scope |
+|---|---|---|
+| student | Self-registration (/auth/student/register) | Their own account, their institution's offered programs |
+| admin (college admin) | Institution registration → super-admin approval | Their own institution only — courses, students, quizzes, certificates, institution profile |
+| super_admin | scripts/seed_super_admin.py only | Every institution — approve/reject/suspend |
+
+Both admin and super_admin log in through the same endpoint
+(POST /api/v1/auth/admin/login); the frontend calls
+GET /api/v1/auth/staff/role right after login to route to the correct
+dashboard.

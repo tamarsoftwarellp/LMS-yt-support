@@ -1,0 +1,690 @@
+import { useState, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
+import {
+  ArrowLeft, Play, Pause, SkipForward, SkipBack, Volume2, VolumeX,
+  CheckCircle2, Lock, ChevronDown, Check, Clock, ChevronLeft, ChevronRight,
+  FileText, HelpCircle, Paperclip, Video, AlignLeft, List, MessageSquare,
+  BookOpen, Download, Star, Users, ThumbsUp, Send, X,
+  Settings, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Code2,
+} from "lucide-react";
+
+// ─── types ────────────────────────────────────────────────────────────────────
+export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding_test";
+
+export interface Lesson {
+  id: string;
+  title: string;
+  type: LessonType;
+  duration: string; // numeric string, e.g. "12"
+  completed: boolean;
+  locked?: boolean;
+  isPreview?: boolean;
+  youtubeId?: string; // YouTube video ID for this lesson, e.g. "dQw4w9WgXcQ"
+  resumePosition?: number;
+  watchedPercentage?: number;
+  articleContent?: string;
+}
+
+export interface Section {
+  id: string;
+  title: string;
+  lessons: Lesson[];
+}
+
+export interface CourseData {
+  id: string;
+  title: string;
+  instructor: string;
+  color: string;
+  emoji: string;
+  totalHours: string;
+  rating: number;
+  enrolled: number;
+  description: string;
+  skills: string[];
+  sections: Section[];
+  progress?: number;
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+const lessonIcon: Record<LessonType, React.ElementType> = {
+  video: Video,
+  article: AlignLeft,
+  quiz: HelpCircle,
+  assignment: Paperclip,
+  coding_test: Code2,
+};
+
+function fmt(secs: number) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// ─── YOUTUBE IFRAME API LOADER ─────────────────────────────────────────────────
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let ytApiPromise: Promise<void> | null = null;
+function loadYouTubeApi(): Promise<void> {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT && window.YT.Player) { resolve(); return; }
+    const existingCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      existingCallback?.();
+      resolve();
+    };
+    if (!document.getElementById("youtube-iframe-api")) {
+      const tag = document.createElement("script");
+      tag.id = "youtube-iframe-api";
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
+    }
+  });
+  return ytApiPromise;
+}
+
+// ─── VIDEO PLAYER (YouTube-backed, module-wise) ────────────────────────────────
+function VideoPlayer({ lesson, color, onEnded, onProgress, onAutoCompleted }: { lesson: Lesson; color: string; onEnded?: () => void; onProgress?: (previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; onAutoCompleted?:()=>void }) {
+  const totalSecsFallback = (parseInt(lesson.duration) || 10) * 60;
+  const [current, setCurrent] = useState(0);
+  const [totalSecs, setTotalSecs] = useState(totalSecsFallback);
+  const [playing, setPlaying] = useState(false);
+  const [buffered, setBuffered] = useState(0);
+  const [showVolume, setShowVolume] = useState(false);
+  const [volume, setVolume] = useState(80);
+  const [muted, setMuted] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [showSpeed, setShowSpeed] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [quality, setQuality] = useState("auto");
+  const [qualityLevels, setQualityLevels] = useState<string[]>([]);
+  const [captions, setCaptions] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [saveState,setSaveState]=useState<"idle"|"saving"|"saved"|"error">("idle");
+  const [watchedPercentage,setWatchedPercentage]=useState(lesson.watchedPercentage||0);
+  const barRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onEndedRef = useRef(onEnded);
+  const onProgressRef=useRef(onProgress);const onAutoCompletedRef=useRef(onAutoCompleted);
+  const currentRef=useRef(lesson.resumePosition||0);const durationRef=useRef(totalSecsFallback);const lastReportedRef=useRef(lesson.resumePosition||0);const completionReportedRef=useRef(lesson.completed);
+  onEndedRef.current = onEnded;
+  onProgressRef.current=onProgress;onAutoCompletedRef.current=onAutoCompleted;
+
+  const reportProgress=async(position?:number)=>{const callback=onProgressRef.current;const duration=Math.round(durationRef.current);const currentPosition=Math.max(0,Math.round(position??currentRef.current));const previousPosition=Math.max(0,Math.round(lastReportedRef.current));if(!callback||!duration||Math.abs(currentPosition-previousPosition)<1)return undefined;lastReportedRef.current=currentPosition;setSaveState("saving");try{const result=await callback(previousPosition,currentPosition,duration);setWatchedPercentage(result.watched_percentage);setSaveState("saved");if(result.status==="completed"&&!completionReportedRef.current){completionReportedRef.current=true;onAutoCompletedRef.current?.();}return result;}catch{lastReportedRef.current=previousPosition;setSaveState("error");return undefined;}};
+
+  // create the YT player once, then swap videos by id as the lesson changes
+  useEffect(() => {
+    let cancelled = false;
+    if (!lesson.youtubeId) return;
+
+    loadYouTubeApi().then(() => {
+      if (cancelled || !hostRef.current) return;
+
+      if (!playerRef.current) {
+        playerRef.current = new window.YT.Player(hostRef.current, {
+          videoId: lesson.youtubeId,
+          playerVars: { autoplay: 0, controls: 0, disablekb: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+          events: {
+            onReady: (e: any) => {
+              setReady(true);
+              e.target.setVolume(volume);
+              const duration=e.target.getDuration() || totalSecsFallback;setTotalSecs(duration);durationRef.current=duration;
+              const levels=e.target.getAvailableQualityLevels?.()||[];setQualityLevels(levels);
+              const resume=Math.min(lesson.resumePosition||0,Math.max(0,duration-2));if(resume>0){e.target.seekTo(resume,true);setCurrent(resume);currentRef.current=resume;}
+            },
+            onStateChange: (e: any) => {
+              const YT = window.YT.PlayerState;
+              if (e.data === YT.PLAYING) setPlaying(true);
+              if (e.data === YT.PAUSED) {setPlaying(false);void reportProgress(e.target.getCurrentTime?.());}
+              if (e.data === YT.ENDED) {
+                setPlaying(false);
+                void reportProgress(e.target.getDuration?.()).then(result=>{if(completionReportedRef.current||result?.status==="completed")onEndedRef.current?.();});
+              }
+            },
+          },
+        });
+      } else {
+        playerRef.current.loadVideoById({videoId:lesson.youtubeId,startSeconds:lesson.resumePosition||0});
+        setCurrent(lesson.resumePosition||0);currentRef.current=lesson.resumePosition||0;lastReportedRef.current=lesson.resumePosition||0;setWatchedPercentage(lesson.watchedPercentage||0);completionReportedRef.current=lesson.completed;
+        setPlaying(false);
+      }
+    });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson.youtubeId]);
+
+  // clean up the player on unmount
+  useEffect(() => {
+    return () => {void reportProgress(playerRef.current?.getCurrentTime?.());playerRef.current?.destroy?.(); playerRef.current = null;};
+  }, []);
+
+  useEffect(()=>{const update=()=>setFullscreen(document.fullscreenElement===containerRef.current);document.addEventListener("fullscreenchange",update);return()=>document.removeEventListener("fullscreenchange",update);},[]);
+
+  // poll current time / buffered % while playing
+  useEffect(() => {
+    if (playing && ready) {
+      pollRef.current = setInterval(() => {
+        const p = playerRef.current;
+        if (!p) return;
+        const next=p.getCurrentTime?.() ?? 0;const duration=p.getDuration?.() || totalSecsFallback;setCurrent(next);currentRef.current=next;setTotalSecs(duration);durationRef.current=duration;
+        if(next-lastReportedRef.current>=10)void reportProgress(next);
+        const buf = p.getVideoLoadedFraction?.();
+        if (typeof buf === "number") setBuffered(buf * 100);
+      }, 500);
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [playing, ready, totalSecsFallback]);
+
+  const togglePlay = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    playing ? p.pauseVideo() : p.playVideo();
+  };
+
+  const skip = (delta: number) => {
+    const p = playerRef.current;
+    if (!p) return;
+    const next = Math.max(0, Math.min(totalSecs, p.getCurrentTime() + delta));
+    p.seekTo(next, true);
+    setCurrent(next);
+  };
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = barRef.current?.getBoundingClientRect();
+    const p = playerRef.current;
+    if (!rect || !p) return;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const target = ratio * totalSecs;
+    p.seekTo(target, true);
+    setCurrent(target);
+  };
+
+  const changeVolume = (v: number) => {
+    setVolume(v);
+    playerRef.current?.setVolume(v);
+    if (v > 0 && muted) { setMuted(false); playerRef.current?.unMute(); }
+  };
+
+  const toggleMute = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    muted ? p.unMute() : p.mute();
+    setMuted(!muted);
+  };
+
+  const changeSpeed = (s: number) => {
+    setSpeed(s);
+    playerRef.current?.setPlaybackRate(s);
+  };
+
+  const changeQuality=(value:string)=>{setQuality(value);if(value!=="auto")playerRef.current?.setPlaybackQuality?.(value);setShowSettings(false);};
+  const toggleCaptions=()=>{const next=!captions;const player=playerRef.current;if(player){if(next){player.loadModule?.("captions");player.setOption?.("captions","track",{});}else player.unloadModule?.("captions");}setCaptions(next);};
+  const toggleFullscreen=async()=>{const element=containerRef.current;if(!element)return;try{if(document.fullscreenElement)await document.exitFullscreen();else await element.requestFullscreen();}catch{setSaveState("error");}};
+
+  const pct = totalSecs ? (current / totalSecs) * 100 : 0;
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  return (
+    <div ref={containerRef} className="relative bg-black rounded-xl overflow-hidden group fullscreen:rounded-none fullscreen:w-screen fullscreen:h-screen fullscreen:flex fullscreen:items-center fullscreen:justify-center">
+      {/* video canvas */}
+      <div className="relative w-full aspect-video" style={{ background: `linear-gradient(135deg, #0a0a0a 0%, #111827 100%)` }}>
+        {lesson.resumePosition&&!playing&&current===lesson.resumePosition?<div className="absolute top-3 right-3 z-10 px-2.5 py-1 rounded-lg bg-black/70 text-white/80 text-[11px]">Resumed at {fmt(lesson.resumePosition)}</div>:null}
+        <div className={`absolute top-3 left-3 z-10 px-2.5 py-1 rounded-lg text-[10.5px] ${saveState==="error"?"bg-red-600 text-white":"bg-black/70 text-white/70"}`}>{saveState==="saving"?"Saving…":saveState==="error"?"Save failed · retrying":"Saved"} · {watchedPercentage}% watched</div>
+        {lesson.youtubeId ? (
+          <>
+            {/* real YouTube iframe, native controls hidden — driven entirely by the bar below */}
+            <div ref={hostRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+            {/* click-through overlay for the center play button when paused */}
+            {!playing && (
+              <button onClick={togglePlay}
+                className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/20 hover:bg-black/10 transition-colors">
+                <span className="w-16 h-16 rounded-full bg-white/10 hover:bg-white/20 border-2 border-white/30 flex items-center justify-center transition-all hover:scale-110">
+                  <Play size={26} className="text-white ml-1" fill="white" />
+                </span>
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <Video size={28} className="text-white/30 mb-2" />
+            <p className="text-white/40 text-[12px]">No video linked to this lesson yet</p>
+          </div>
+        )}
+        {/* title overlay */}
+        <p className="absolute bottom-14 left-4 text-white/60 text-[13px] font-medium drop-shadow pointer-events-none">{lesson.title}</p>
+      </div>
+
+      {/* controls bar */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-3 pt-8 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* seek bar */}
+        <div ref={barRef} className="relative h-1.5 bg-white/20 rounded-full mb-3 cursor-pointer" onClick={seek}>
+          <div className="absolute h-full bg-white/30 rounded-full" style={{ width: `${buffered}%` }} />
+          <div className="absolute h-full rounded-full transition-none" style={{ width: `${pct}%`, background: color }} />
+          <div className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg -ml-1.5 transition-none"
+            style={{ left: `${pct}%` }} />
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* prev/play/next */}
+          <button className="text-white/70 hover:text-white transition-colors" onClick={() => skip(-10)}>
+            <SkipBack size={16} />
+          </button>
+          <button className="text-white hover:scale-110 transition-transform" onClick={togglePlay}>
+            {playing ? <Pause size={20} fill="white" /> : <Play size={20} fill="white" />}
+          </button>
+          <button className="text-white/70 hover:text-white transition-colors" onClick={() => skip(10)}>
+            <SkipForward size={16} />
+          </button>
+
+          {/* time */}
+          <span className="text-white/70 text-[12px] font-mono ml-1">{fmt(current)} / {fmt(totalSecs)}</span>
+
+          <div className="flex-1" />
+
+          {/* volume */}
+          <div className="relative">
+            <button className="text-white/70 hover:text-white transition-colors" onClick={() => setShowVolume(!showVolume)}>
+              {muted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+            {showVolume && (
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-black/90 rounded-xl p-3 shadow-xl border border-white/10">
+                <input type="range" min={0} max={100} value={muted ? 0 : volume}
+                  onChange={e => changeVolume(+e.target.value)}
+                  className="h-20 cursor-pointer" style={{ writingMode: "vertical-lr", direction: "rtl" }} />
+                <button onClick={toggleMute} className="mt-2 text-white/60 hover:text-white text-[10px] block w-full text-center">
+                  {muted ? "Unmute" : "Mute"}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* speed */}
+          <div className="relative">
+            <button className="text-white/70 hover:text-white text-[12px] font-bold transition-colors px-1" onClick={() => setShowSpeed(!showSpeed)}>
+              {speed}x
+            </button>
+            {showSpeed && (
+              <div className="absolute bottom-8 right-0 bg-black/90 rounded-xl overflow-hidden shadow-xl border border-white/10">
+                {SPEEDS.map(s => (
+                  <button key={s} onClick={() => { changeSpeed(s); setShowSpeed(false); }}
+                    className={`block w-full px-4 py-2 text-[12px] text-left transition-colors hover:bg-white/10 ${speed === s ? "text-white font-bold" : "text-white/70"}`}>
+                    {s}x
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="relative">
+            <button aria-label="Video settings" className={`text-white/70 hover:text-white transition-colors ${showSettings?"text-white":""}`} onClick={()=>{setQualityLevels(playerRef.current?.getAvailableQualityLevels?.()||[]);setShowSettings(value=>!value);setShowSpeed(false);setShowVolume(false);}}>
+              <Settings size={14} />
+            </button>
+            {showSettings&&<div className="absolute bottom-8 right-0 w-52 bg-black/95 rounded-xl p-2 shadow-xl border border-white/10 text-[11px] text-white"><p className="px-2 py-1 text-white/45 uppercase tracking-wider">Quality</p><button onClick={()=>changeQuality("auto")} className={`w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 ${quality==="auto"?"text-white font-semibold":"text-white/70"}`}><span>Auto</span>{quality==="auto"&&<Check size={12}/>}</button>{qualityLevels.map(level=><button key={level} onClick={()=>changeQuality(level)} className={`w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 ${quality===level?"text-white font-semibold":"text-white/70"}`}><span>{level.replace("hd","HD ").replace("large","480p").replace("medium","360p").replace("small","240p")}</span>{quality===level&&<Check size={12}/>}</button>)}<div className="my-1 border-t border-white/10"/><button onClick={toggleCaptions} className="w-full px-2 py-2 rounded-lg flex justify-between hover:bg-white/10 text-white/70"><span>Captions</span><span className={captions?"text-emerald-400":"text-white/40"}>{captions?"On":"Off"}</span></button></div>}
+          </div>
+          <button aria-label={fullscreen?"Exit fullscreen":"Enter fullscreen"} className="text-white/70 hover:text-white transition-colors" onClick={toggleFullscreen}>
+            {fullscreen?<Minimize2 size={14}/>:<Maximize2 size={14} />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── NOTES TAB ────────────────────────────────────────────────────────────────
+function NotesTab({ lessonTitle }: { lessonTitle: string }) {
+  const [notes, setNotes] = useState([
+    { id: "n1", time: "2:15", text: "Key concept: hooks allow functional components to manage state." },
+    { id: "n2", time: "8:40", text: "Remember to always call hooks at the top level, never inside loops." },
+  ]);
+  const [draft, setDraft] = useState("");
+
+  const add = () => {
+    if (!draft.trim()) return;
+    setNotes(n => [...n, { id: Date.now().toString(), time: "0:00", text: draft.trim() }]);
+    setDraft("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <textarea value={draft} onChange={e => setDraft(e.target.value)}
+          placeholder={`Add a note for "${lessonTitle}"…`}
+          rows={3}
+          className="flex-1 resize-none text-[13px] text-[#0F1C3F] bg-[#F8FAFB] border border-[rgba(27,58,107,0.15)] rounded-xl p-3 outline-none focus:border-[#1B3A6B] transition-colors placeholder:text-[#9AA5BE]" />
+        <button onClick={add} className="self-end px-4 py-2 bg-[#1B3A6B] text-white text-[12px] font-semibold rounded-xl hover:bg-[#152d54] transition-colors">
+          Save
+        </button>
+      </div>
+      {notes.map(n => (
+        <div key={n.id} className="flex gap-3 p-3 bg-white rounded-xl border border-[rgba(27,58,107,0.1)] group">
+          <span className="shrink-0 text-[11px] font-bold text-[#1B3A6B] bg-[#EBF1FA] px-2 py-0.5 rounded-md mt-0.5 h-fit">{n.time}</span>
+          <p className="text-[13px] text-[#374151] flex-1">{n.text}</p>
+          <button onClick={() => setNotes(ns => ns.filter(x => x.id !== n.id))} className="opacity-0 group-hover:opacity-100 text-[#9AA5BE] hover:text-red-400 transition-all">
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Q&A TAB ──────────────────────────────────────────────────────────────────
+function QATab() {
+  const [q, setQ] = useState("");
+  const [questions, setQuestions] = useState([
+    {
+      id: "q1", user: "Priya S.", avatar: "PS", time: "2 days ago",
+      text: "Can you explain when to use useCallback vs useMemo?",
+      likes: 14, answered: true,
+      answer: "useCallback memoizes a function reference; useMemo memoizes the result of calling a function. Use useCallback when passing callbacks to child components to prevent re-renders, and useMemo for expensive computations.",
+    },
+    {
+      id: "q2", user: "Rahul M.", avatar: "RM", time: "5 hours ago",
+      text: "Why does the dependency array matter in useEffect?",
+      likes: 7, answered: false, answer: "",
+    },
+  ]);
+
+  const ask = () => {
+    if (!q.trim()) return;
+    setQuestions(qs => [{ id: Date.now().toString(), user: "You", avatar: "YO", time: "just now", text: q.trim(), likes: 0, answered: false, answer: "" }, ...qs]);
+    setQ("");
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Ask a question…"
+          onKeyDown={e => e.key === "Enter" && ask()}
+          className="flex-1 text-[13px] bg-[#F8FAFB] border border-[rgba(27,58,107,0.15)] rounded-xl px-3 py-2.5 outline-none focus:border-[#1B3A6B] transition-colors placeholder:text-[#9AA5BE]" />
+        <button onClick={ask} className="px-4 py-2.5 bg-[#1B3A6B] text-white rounded-xl hover:bg-[#152d54] transition-colors">
+          <Send size={14} />
+        </button>
+      </div>
+
+      {questions.map(item => (
+        <div key={item.id} className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4 space-y-3">
+          <div className="flex gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-[#1B3A6B] flex items-center justify-center text-white text-[10px] font-bold shrink-0">{item.avatar}</div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[12.5px] font-semibold text-[#0F1C3F]">{item.user}</span>
+                <span className="text-[11px] text-[#9AA5BE]">{item.time}</span>
+              </div>
+              <p className="text-[13px] text-[#374151]">{item.text}</p>
+            </div>
+            <button className="flex items-center gap-1 text-[11.5px] text-[#5A6A8A] hover:text-[#1B3A6B] transition-colors self-start">
+              <ThumbsUp size={12} /> {item.likes}
+            </button>
+          </div>
+          {item.answered && (
+            <div className="ml-9 p-3 bg-[#F4F7FC] rounded-lg border-l-2 border-[#1B3A6B]">
+              <p className="text-[11.5px] font-semibold text-[#1B3A6B] mb-1">Instructor reply</p>
+              <p className="text-[12.5px] text-[#374151]">{item.answer}</p>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── OVERVIEW TAB ─────────────────────────────────────────────────────────────
+function OverviewTab({ course }: { course: CourseData }) {
+  return (
+    <div className="space-y-5">
+      {/* instructor card */}
+      <div className="flex items-center gap-3 p-4 bg-white rounded-xl border border-[rgba(27,58,107,0.1)]">
+        <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-[14px] font-bold shrink-0" style={{ background: course.color }}>
+          {course.instructor.split(" ").map(w => w[0]).join("").slice(0, 2)}
+        </div>
+        <div>
+          <p className="text-[13.5px] font-bold text-[#0F1C3F]">{course.instructor}</p>
+          <p className="text-[12px] text-[#5A6A8A]">Course Instructor</p>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="flex items-center gap-1 text-[11.5px] text-amber-600"><Star size={11} fill="currentColor" />{course.rating}</span>
+            <span className="flex items-center gap-1 text-[11.5px] text-[#5A6A8A]"><Users size={11} />{course.enrolled.toLocaleString()} students</span>
+          </div>
+        </div>
+      </div>
+
+      {/* description */}
+      <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4">
+        <p className="text-[13.5px] font-bold text-[#0F1C3F] mb-2">About this course</p>
+        <p className="text-[13px] text-[#5A6A8A] leading-relaxed">{course.description}</p>
+      </div>
+
+      {/* what you'll learn */}
+      <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4">
+        <p className="text-[13.5px] font-bold text-[#0F1C3F] mb-3">What you will learn</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {course.skills.map(s => (
+            <div key={s} className="flex items-start gap-2 text-[12.5px] text-[#374151]">
+              <Check size={13} className="text-emerald-500 mt-0.5 shrink-0" />
+              {s}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ARTICLE VIEW ─────────────────────────────────────────────────────────────
+function ArticleView({ lesson }: { lesson: Lesson }) {
+  return (
+    <div className="bg-white rounded-xl border border-[rgba(27,58,107,0.1)] p-4 sm:p-6">
+      {lesson.articleContent?.trim() ? <div className="text-[13.5px] text-[#374151] leading-7 whitespace-pre-wrap break-words">{lesson.articleContent}</div> : <div className="py-8 text-center text-[13px] text-[#5A6A8A]">Article content has not been added yet.</div>}
+    </div>
+  );
+}
+
+function QuizView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This quiz is not configured yet.</div>; }
+function AssignmentView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This assignment is not configured yet.</div>; }
+function CodingTestView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This coding test is not configured yet.</div>; }
+
+// ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
+export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment, renderCodingTest }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderCodingTest?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
+  const allLessons = course.sections.flatMap(s => s.lessons);
+  const firstIncomplete = allLessons.find(l => !l.completed && !l.locked) ?? allLessons[0];
+  const [activeLesson, setActiveLesson] = useState<Lesson>(firstIncomplete);
+  const [expanded, setExpanded] = useState<string[]>(course.sections.map(s => s.id));
+  const [completedIds, setCompletedIds] = useState<string[]>(allLessons.filter(l => l.completed).map(l => l.id));
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<"overview" | "notes" | "qa">("overview");
+
+  const total = allLessons.filter(l => !l.locked).length;
+  const done = completedIds.length;
+  const pct = Math.round((done / total) * 100);
+
+  const allUnlocked = allLessons.filter(l => !l.locked);
+  const curIdx = allUnlocked.findIndex(l => l.id === activeLesson.id);
+
+  const markDone = (advance=true) => {
+    if (!completedIds.includes(activeLesson.id)) {
+      setCompletedIds(ids => [...ids, activeLesson.id]);
+      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding_test") void onLessonComplete?.(activeLesson.id);
+    }
+    if (advance&&curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
+  };
+
+  const Icon = lessonIcon[activeLesson.type];
+
+  return (
+    <div className="relative flex h-screen overflow-hidden bg-[#1a1a1a]" style={{ fontFamily: "var(--font-sans)" }}>
+
+      {/* ── Sidebar ── */}
+      {sidebarOpen && <button aria-label="Close curriculum" onClick={()=>setSidebarOpen(false)} className="absolute inset-0 z-20 bg-black/45 md:hidden" />}
+      <aside className={`${sidebarOpen ? "w-[300px] translate-x-0" : "w-[300px] -translate-x-full md:w-0"} absolute md:relative inset-y-0 left-0 z-30 bg-[#1a1a1a] border-r border-white/10 flex flex-col shrink-0 overflow-hidden transition-all duration-200`}>
+        <div className="p-4 border-b border-white/10">
+          <button onClick={onBack} className="flex items-center gap-1.5 text-[12px] text-white/50 hover:text-white/80 transition-colors mb-3">
+            <ArrowLeft size={13} /> Back to courses
+          </button>
+          <p className="text-[13px] font-bold text-white line-clamp-2 leading-snug">{course.title}</p>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: course.color }} />
+            </div>
+            <span className="text-[11px] font-semibold text-white/60">{pct}%</span>
+          </div>
+          <p className="text-[11px] text-white/40 mt-0.5">{done}/{total} completed</p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-2">
+          {course.sections.map((sec, si) => {
+            const secDone = sec.lessons.filter(l => completedIds.includes(l.id)).length;
+            const isOpen = expanded.includes(sec.id);
+            return (
+              <div key={sec.id}>
+                <button onClick={() => setExpanded(ex => isOpen ? ex.filter(e => e !== sec.id) : [...ex, sec.id])}
+                  className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-white/5 transition-colors text-left">
+                  <ChevronDown size={13} className={`text-white/40 transition-transform shrink-0 ${isOpen ? "" : "-rotate-90"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[12px] font-semibold text-white/80 leading-snug">
+                      <span className="text-white/30 mr-1">S{si + 1}.</span>{sec.title}
+                    </p>
+                    <p className="text-[10.5px] text-white/30 mt-0.5">{secDone}/{sec.lessons.length} • {sec.lessons.reduce((sum, l) => sum + (parseInt(l.duration) || 0), 0)}m</p>
+                  </div>
+                </button>
+
+                {isOpen && sec.lessons.map((lesson, li) => {
+                  const LIcon = lessonIcon[lesson.type];
+                  const isDone = completedIds.includes(lesson.id);
+                  const isActive = lesson.id === activeLesson.id;
+                  return (
+                    <button key={lesson.id} disabled={!!lesson.locked}
+                      onClick={() => !lesson.locked && setActiveLesson(lesson)}
+                      className={`w-full flex items-start gap-2.5 px-4 py-2.5 transition-colors text-left
+                        ${isActive ? "bg-white/10 border-l-2 border-l-white/60" : "hover:bg-white/5 border-l-2 border-l-transparent"}
+                        ${lesson.locked ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}>
+                      <div className={`w-4.5 h-4.5 rounded-full flex items-center justify-center shrink-0 mt-0.5 border
+                        ${isDone ? "bg-emerald-500 border-emerald-500" : isActive ? "border-white/60" : "border-white/20"}`}>
+                        {isDone ? <Check size={8} className="text-white" /> :
+                          lesson.locked ? <Lock size={8} className="text-white/40" /> :
+                          <LIcon size={8} className="text-white/40" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[11.5px] leading-snug ${isActive ? "text-white font-semibold" : isDone ? "text-white/60" : "text-white/50"}`}>
+                          {si + 1}.{li + 1} {lesson.title}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-white/30 flex items-center gap-0.5"><Clock size={8} />{lesson.duration}m</span>
+                          {lesson.isPreview && <span className="text-[9.5px] text-amber-400 font-medium">Preview</span>}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#F2F5FC]">
+        {/* top nav */}
+        <div className="bg-[#0A1629] px-4 py-2.5 flex items-center gap-3 shrink-0">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white/60 hover:text-white transition-colors">
+            {sidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+          </button>
+          <div className="flex items-center gap-1.5 text-[12px] text-white/50 flex-1 min-w-0">
+            <span className="text-white/30">{course.emoji}</span>
+            <span className="truncate text-white/60">{course.title}</span>
+            <ChevronRight size={11} className="text-white/30 shrink-0" />
+            <span className="truncate text-white/80 font-medium">{activeLesson.title}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button disabled={curIdx === 0} onClick={() => curIdx > 0 && setActiveLesson(allUnlocked[curIdx - 1])}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] text-white/60 hover:text-white border border-white/10 hover:border-white/30 rounded-lg disabled:opacity-30 transition-colors">
+              <ChevronLeft size={12} /><span className="hidden sm:inline">Prev</span>
+            </button>
+            <button disabled={curIdx >= allUnlocked.length - 1} onClick={() => curIdx < allUnlocked.length - 1 && setActiveLesson(allUnlocked[curIdx + 1])}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] text-white/60 hover:text-white border border-white/10 hover:border-white/30 rounded-lg disabled:opacity-30 transition-colors">
+              <span className="hidden sm:inline">Next</span><ChevronRight size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* content area */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-[820px] mx-auto px-3 sm:px-6 py-4 sm:py-6">
+            {/* lesson header */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border
+                ${activeLesson.type === "video" ? "bg-blue-50 text-blue-700 border-blue-200" :
+                  activeLesson.type === "quiz" ? "bg-purple-50 text-purple-700 border-purple-200" :
+                  activeLesson.type === "assignment" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                  activeLesson.type === "coding_test" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
+                  "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                <Icon size={10} />
+                {activeLesson.type === "coding_test" ? "Coding Test" : activeLesson.type.charAt(0).toUpperCase() + activeLesson.type.slice(1)}
+              </span>
+              {activeLesson.type === "video" && (
+                <span className="text-[12px] text-[#9AA5BE] flex items-center gap-1"><Clock size={11} />{activeLesson.duration}m</span>
+              )}
+            </div>
+            <h2 className="text-[22px] font-bold text-[#0F1C3F] mb-4 leading-tight" style={{ fontFamily: "var(--font-serif)" }}>
+              {activeLesson.title}
+            </h2>
+
+            {/* lesson content */}
+            {activeLesson.type === "video" && <VideoPlayer lesson={activeLesson} color={course.color} onEnded={()=>markDone(true)} onAutoCompleted={()=>markDone(false)} onProgress={(previous,current,duration)=>onVideoProgress?.(activeLesson.id,previous,current,duration)??Promise.resolve({status:"in_progress",watched_percentage:0})} />}
+            {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
+            {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView />)}
+            {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView />)}
+            {activeLesson.type === "coding_test" && (renderCodingTest ? renderCodingTest(activeLesson, ()=>markDone(true)) : <CodingTestView />)}
+
+            {/* mark complete */}
+            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding_test" && (
+              completedIds.includes(activeLesson.id) ? (
+                <div className="mt-5 flex items-center justify-center gap-2 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-[13.5px] font-semibold">
+                  <CheckCircle2 size={16} /> Lesson completed!
+                </div>
+              ) : (
+                <button onClick={()=>markDone(true)}
+                  className="mt-5 w-full py-3 text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  style={{ background: course.color }}>
+                  <Check size={16} /> Mark as Complete & Continue
+                </button>
+              )
+            )}
+
+            {/* tabs */}
+            <div className="mt-8 border-b border-[rgba(27,58,107,0.1)]">
+              <div className="flex gap-1">
+                {([
+                  { key: "overview", label: "Overview", icon: BookOpen },
+                  { key: "notes", label: "Notes", icon: List },
+                  { key: "qa", label: "Q&A", icon: MessageSquare },
+                ] as const).map(tab => (
+                  <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors
+                      ${activeTab === tab.key ? "border-[#1B3A6B] text-[#1B3A6B]" : "border-transparent text-[#5A6A8A] hover:text-[#1B3A6B]"}`}>
+                    <tab.icon size={13} />{tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-5">
+              {activeTab === "overview" && <OverviewTab course={course} />}
+              {activeTab === "notes" && <NotesTab lessonTitle={activeLesson.title} />}
+              {activeTab === "qa" && <QATab />}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
