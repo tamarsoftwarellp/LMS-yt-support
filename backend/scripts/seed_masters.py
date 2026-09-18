@@ -16,6 +16,9 @@ COLLEGES = [
     "Delhi Technical University",
     "Anna University, Chennai",
     "BITS Pilani",
+    "DIET , Meerut",
+    "MIET, Meerut",
+    "DVSIET, Meerut"
 ]
 PROGRAMS = [
     "Computer Science & Engineering",

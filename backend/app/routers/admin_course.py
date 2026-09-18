@@ -33,7 +33,7 @@ from ..models import Course, CourseEnrollment, CourseLesson, CourseSection, User
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin LMS"])
 COURSE_STATUSES = {"draft", "published", "archived"}
-LESSON_TYPES = {"video", "article", "quiz", "assignment", "coding"}
+LESSON_TYPES = {"video", "article", "quiz", "assignment", "coding_test"}
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 YOUTUBE_URL_RE = re.compile(
     r"(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/|embed/|v/))([A-Za-z0-9_-]{11})",
@@ -107,6 +107,7 @@ def _serialize_course(db: Session, course: Course) -> AdminCourseListItem:
         duration_hours=course.duration_hours,
         skills=list(course.skills or []),
         status=course.status,
+        access_type=course.access_type,
         thumbnail_url=course.thumbnail_url,
         instructor_name=course.instructor_name,
         created_by_user_id=course.created_by_user_id,
@@ -171,8 +172,8 @@ def _course_issues(course: Course) -> list[str]:
                 issues.append(f"Quiz lesson '{lesson.title}' requires a published quiz")
             if lesson.lesson_type == "assignment" and (not lesson.assignment or lesson.assignment.status != "published"):
                 issues.append(f"Assignment lesson '{lesson.title}' requires a published assignment")
-            if lesson.lesson_type == "coding" and (not lesson.coding_challenge or lesson.coding_challenge.status != "published"):
-                issues.append(f"Coding-test lesson '{lesson.title}' requires a published coding challenge")
+            if lesson.lesson_type == "coding_test" and (not lesson.coding_test or lesson.coding_test.status != "published"):
+                issues.append(f"Coding-test lesson '{lesson.title}' requires a published coding test")
             expected_lesson_sequence += 1
         expected_section_sequence += 1
     return issues
@@ -224,6 +225,13 @@ def _apply_course_updates(course: Course, payload: AdminCourseUpdateIn, db: Sess
         course.skills = _normalize_skills(data["skills"])
     if "status" in data and data["status"] is not None:
         course.status = data["status"]
+    if "access_type" in data and data["access_type"] is not None:
+        if data["access_type"] != course.access_type and course.status != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Archive and restore the course as a draft before changing its access type",
+            )
+        course.access_type = data["access_type"]
     if "thumbnail_url" in data:
         course.thumbnail_url = data["thumbnail_url"].strip() if data["thumbnail_url"] else None
     if "instructor_name" in data:
@@ -315,6 +323,7 @@ def create_course(payload: AdminCourseCreateIn, db: Session = Depends(get_db), a
         duration_hours=payload.duration_hours,
         skills=_normalize_skills(payload.skills),
         status="draft",
+        access_type=payload.access_type,
         thumbnail_url=payload.thumbnail_url.strip() if payload.thumbnail_url else None,
         instructor_name=_normalize_text(payload.instructor_name) if payload.instructor_name else None,
         created_by_user_id=admin.id,
@@ -548,4 +557,3 @@ def reorder_lessons(section_id: uuid.UUID, payload: ReorderPayload, db: Session 
     db.refresh(section)
     section = db.scalar(select(CourseSection).options(selectinload(CourseSection.lessons)).where(CourseSection.id == section_id))
     return AdminSectionOut(**_section_payload(section))
-

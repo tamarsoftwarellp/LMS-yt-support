@@ -117,11 +117,13 @@ def test_admin_rbac_and_course_crud() -> None:
             "duration_hours": 12,
             "skills": ["Python"],
             "status": "draft",
+            "access_type": "open_elective",
         },
     )
     assert create.status_code == 201, create.text
     course_id = create.json()["id"]
     assert create.json()["created_by_user_id"] is not None
+    assert create.json()["access_type"] == "open_elective"
 
     bypass_publish = client.put(f"/api/v1/admin/courses/{course_id}", headers=headers, json={"status": "published"})
     assert bypass_publish.status_code == 422
@@ -165,6 +167,12 @@ def test_admin_rbac_and_course_crud() -> None:
     assert lesson.status_code == 201, lesson.text
 
     assert client.post(f"/api/v1/admin/courses/{course_id}/publish", headers=headers).status_code == 200
+    access_change = client.put(
+        f"/api/v1/admin/courses/{course_id}",
+        headers=headers,
+        json={"access_type": "college_allocated"},
+    )
+    assert access_change.status_code == 409
     assert client.post(f"/api/v1/admin/courses/{course_id}/archive", headers=headers).status_code == 200
     assert client.post(f"/api/v1/admin/courses/{course_id}/restore", headers=headers).status_code == 200
 

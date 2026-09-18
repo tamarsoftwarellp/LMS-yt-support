@@ -12,6 +12,7 @@ from ..models import (AssignmentSubmission, Course, CourseEnrollment, CourseSect
 
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Analytics"])
 admin_router = APIRouter(prefix="/api/v1/admin/analytics", tags=["Admin Analytics"])
+ACTIVE_ENROLLMENT_STATUSES = ("enrolled", "in_progress", "completed")
 
 
 def _streak(activity_dates: set[date]) -> int:
@@ -28,7 +29,10 @@ def _streak(activity_dates: set[date]) -> int:
 
 
 def _student_dashboard(user: User, db: Session) -> dict:
-    enrollments = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id)
+    enrollments = list(db.scalars(select(CourseEnrollment).where(
+        CourseEnrollment.user_id == user.id,
+        CourseEnrollment.status.in_(ACTIVE_ENROLLMENT_STATUSES),
+    )
         .options(selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons))))
     enrollment_ids = [item.id for item in enrollments]
     progress_items = list(db.scalars(select(LessonProgress).where(LessonProgress.enrollment_id.in_(enrollment_ids)))) if enrollment_ids else []

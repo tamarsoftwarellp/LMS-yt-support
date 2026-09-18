@@ -10,6 +10,7 @@ from ..dependencies import get_current_admin, get_current_student
 from ..models import (CourseEnrollment, CourseLesson, LessonProgress, Quiz, QuizOption, QuizQuestion,
                      StudentLearningActivity, StudentQuizAnswer, StudentQuizAttempt, User)
 from ..schemas.quiz import QuizSubmitIn, QuizUpsertIn
+from ..services.enrollment import get_active_enrollment
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Quiz Builder"])
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Quiz Attempts"])
@@ -87,8 +88,7 @@ def student_context(db: Session, user_id: uuid.UUID, quiz_id: uuid.UUID) -> tupl
     quiz = load_quiz(db, quiz_id)
     if quiz.status != "published":
         raise HTTPException(status_code=404, detail="Quiz is not available")
-    enrollment = db.scalar(select(CourseEnrollment).where(CourseEnrollment.user_id == user_id,
-        CourseEnrollment.course_id == quiz.lesson.section.course_id))
+    enrollment = get_active_enrollment(db, user_id, quiz.lesson.section.course_id)
     if not enrollment:
         raise HTTPException(status_code=403, detail="Enroll in this course before taking the quiz")
     return quiz, enrollment

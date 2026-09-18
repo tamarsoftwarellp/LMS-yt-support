@@ -12,7 +12,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.schemas.career import RoadmapDraft
 from app.schemas.resume_builder import ResumeContent
-from app.models import College, CollegeProgram, Course, CourseLesson, CourseSection, Program, User
+from app.models import College, CollegeCourseAllocation, CollegeProgram, Course, CourseLesson, CourseSection, Program, StudentProfile, User
 
 
 engine = create_engine(
@@ -162,6 +162,13 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
             CourseLesson(section_id=section.id, title="Variables", lesson_type="article", duration_minutes=10, sequence=1, is_preview=True, article_content="Preview content"),
             CourseLesson(section_id=section.id, title="Functions", lesson_type="quiz", duration_minutes=15, sequence=2),
         ])
+        profile = db.scalar(select(StudentProfile).join(User).where(User.email == "arjun@example.com"))
+        db.add(CollegeCourseAllocation(
+            college_id=profile.college_id,
+            course_id=course.id,
+            program_id=profile.program_id,
+            is_active=True,
+        ))
         db.commit()
 
     skills = client.put("/api/v1/students/me/skills", headers=headers, json=[{
@@ -217,6 +224,13 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
             CourseLesson(section_id=dsa_section.id, title="Intro to Trees", lesson_type="article", duration_minutes=8, sequence=1, is_preview=True, article_content="Free preview lesson"),
             CourseLesson(section_id=dsa_section.id, title="Balanced Trees", lesson_type="video", duration_minutes=20, sequence=2, is_preview=False, youtube_id="dQw4w9WgXcQ"),
         ])
+        profile = db.scalar(select(StudentProfile).join(User).where(User.email == "arjun@example.com"))
+        db.add(CollegeCourseAllocation(
+            college_id=profile.college_id,
+            course_id=other.id,
+            program_id=profile.program_id,
+            is_active=True,
+        ))
         db.commit()
         dsa_course_id = other.id
 
@@ -280,6 +294,56 @@ def test_student_generates_edits_scores_and_downloads_ats_resume(monkeypatch) ->
     assert pdf.content.startswith(b"%PDF")
 
 
+def test_dual_catalog_allows_open_elective_but_blocks_unallocated_college_course() -> None:
+    login = client.post(
+        "/api/v1/auth/student/login",
+        json={"email": "arjun@example.com", "password": "StrongPass123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    suffix = os.urandom(4).hex()
+    with TestingSession() as db:
+        elective = Course(
+            title=f"Optional Cloud Skills {suffix}",
+            slug=f"optional-cloud-{suffix}",
+            description="Student-selected independent learning.",
+            level="Beginner",
+            duration_hours=6,
+            skills=["Cloud"],
+            status="published",
+            access_type="open_elective",
+        )
+        restricted = Course(
+            title=f"Restricted College Course {suffix}",
+            slug=f"restricted-college-{suffix}",
+            description="Requires an explicit college allocation.",
+            level="Intermediate",
+            duration_hours=8,
+            skills=["Security"],
+            status="published",
+            access_type="college_allocated",
+        )
+        db.add_all([elective, restricted])
+        db.commit()
+        elective_id = elective.id
+        restricted_id = restricted.id
+
+    catalog = client.get("/api/v1/students/me/courses/catalog", headers=headers)
+    assert catalog.status_code == 200, catalog.text
+    by_id = {item["id"]: item for item in catalog.json()["items"]}
+    assert str(elective_id) in by_id
+    assert by_id[str(elective_id)]["access_type"] == "open_elective"
+    assert str(restricted_id) not in by_id
+
+    enrolled = client.post(
+        f"/api/v1/students/me/courses/{elective_id}/enroll", headers=headers
+    )
+    assert enrolled.status_code == 201, enrolled.text
+    denied = client.post(
+        f"/api/v1/students/me/courses/{restricted_id}/enroll", headers=headers
+    )
+    assert denied.status_code == 403, denied.text
+
+
 def test_resume_builder_auto_syncs_completed_courses() -> None:
     login = client.post("/api/v1/auth/student/login", json={"email": "arjun@example.com", "password": "StrongPass123"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -289,6 +353,13 @@ def test_resume_builder_auto_syncs_completed_courses() -> None:
         section = CourseSection(course_id=course.id, title="Basics", sequence=1)
         db.add(section); db.flush()
         db.add(CourseLesson(section_id=section.id, title="Intro to Git", lesson_type="article", duration_minutes=10, sequence=1, article_content="Git basics"))
+        profile = db.scalar(select(StudentProfile).join(User).where(User.email == "arjun@example.com"))
+        db.add(CollegeCourseAllocation(
+            college_id=profile.college_id,
+            course_id=course.id,
+            program_id=profile.program_id,
+            is_active=True,
+        ))
         db.commit()
         course_id = course.id
 
@@ -313,9 +384,6 @@ def test_resume_builder_auto_syncs_completed_courses() -> None:
     again = client.get("/api/v1/students/me/resume-builder", headers=headers)
     titles_again = [item["title"] for item in again.json()["profile"]["certifications"]]
     assert titles_again.count("Git Fundamentals") == 1
-
-
-
 
 
 

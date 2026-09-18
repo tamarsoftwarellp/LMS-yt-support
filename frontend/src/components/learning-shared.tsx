@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { AlertCircle, Award, Check, Play, X } from "lucide-react";
-import { loadStudentAssignment, loadStudentCoding, loadStudentQuiz, saveAssignmentSubmission, startQuizAttempt, submitCodingChallenge, submitQuizAttempt } from "../api/student-career";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { AlertCircle, Award, Check, Play, Send } from "lucide-react";
+import { loadStudentAssignment, loadStudentCodingTest, loadStudentQuiz, runCodingTest, saveAssignmentSubmission, startQuizAttempt, submitCodingTest, submitQuizAttempt } from "../api/student-career";
+import type { CodingCaseResult } from "../api/student-career";
 import type { Lesson } from "./course-player";
-import { CodeEditor } from "./monaco-code-editor";
-import { runCodingTests, type RunResult } from "./code-runner";
+const CodeEditor = lazy(() => import("./monaco-code-editor").then(module => ({ default: module.CodeEditor })));
 
 export function Notice({ error, success }: { error?: string; success?: string }) {
   if (!error && !success) return null;
@@ -36,8 +36,8 @@ export function LiveAssignment({ lesson, onPassed }: { lesson: Lesson; onPassed:
   const [assignment, setAssignment] = useState<Awaited<ReturnType<typeof loadStudentAssignment>> | null>(null);
   const [text, setText] = useState(""); const [link, setLink] = useState(""); const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [success, setSuccess] = useState("");
-  const load = () => loadStudentAssignment(lesson.id).then(value => { setAssignment(value); setText(value.latest_submission?.status === "draft" ? value.latest_submission.text_content || "" : ""); setLink(value.latest_submission?.status === "draft" ? value.latest_submission.link_url || "" : ""); if (value.latest_submission?.evaluation?.decision === "passed") onPassed(); }).catch(e => setError(e.message));
-  useEffect(() => { load(); }, [lesson.id]);
+  const load = useCallback(() => loadStudentAssignment(lesson.id).then(value => { setAssignment(value); setText(value.latest_submission?.status === "draft" ? value.latest_submission.text_content || "" : ""); setLink(value.latest_submission?.status === "draft" ? value.latest_submission.link_url || "" : ""); if (value.latest_submission?.evaluation?.decision === "passed") onPassed(); }).catch(e => setError(e.message)), [lesson.id, onPassed]);
+  useEffect(() => { load(); }, [load]);
   const save = async (status: "draft" | "submitted") => { if (!assignment) return; setBusy(true); setError(""); setSuccess(""); try { await saveAssignmentSubmission(assignment.id, { status, text, link, file }); setSuccess(status === "draft" ? "Draft saved." : "Assignment submitted for evaluation."); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Unable to save assignment"); } finally { setBusy(false); } };
   if (error && !assignment) return <Notice error={error} />;
   if (!assignment) return <div className="p-8 text-center text-[13px]">Loading assignment…</div>;
@@ -60,142 +60,213 @@ export function LiveAssignment({ lesson, onPassed }: { lesson: Lesson; onPassed:
   </div>;
 }
 
-export function LiveCoding({ lesson, onPassed }: { lesson: Lesson; onPassed: () => void }) {
-  const [challenge, setChallenge] = useState<Awaited<ReturnType<typeof loadStudentCoding>> | null>(null);
-  const [code, setCode] = useState("");
-  const [running, setRunning] = useState(false);
-  const [runResult, setRunResult] = useState<RunResult | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState<Awaited<ReturnType<typeof submitCodingChallenge>> | null>(null);
+const MONACO_LANGUAGE: Record<string, string> = { python: "python", javascript: "javascript", java: "java", cpp: "cpp", html: "html", css: "css", js: "javascript" };
+const ALGO_LANGUAGE_LABEL: Record<string, string> = { python: "Python", javascript: "JavaScript (Node.js)", java: "Java", cpp: "C++" };
+
+function CodingResultList({ results }: { results: CodingCaseResult[] }) {
+  return (
+    <div className="space-y-1.5">
+      {results.map((r) => (
+        <div
+          key={r.test_case_id}
+          className="flex items-start gap-2 text-[12.5px] px-3 py-2 rounded-lg bg-[#F8FAFB]"
+        >
+          <span className={r.passed ? "text-emerald-600" : "text-red-500"}>
+            {r.passed ? "✓" : "✗"}
+          </span>
+          <span className="flex-1 text-[#374151]">
+            {r.title}
+            {r.is_hidden ? <span className="text-[#9AA5BE]"> (hidden)</span> : null}
+            {!r.passed && r.error_message && (
+              <span className="block text-[11.5px] text-red-500 mt-0.5">
+                {r.error_message}
+              </span>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function LiveCodingTest({ lesson, onPassed }: { lesson: Lesson; onPassed: () => void }) {
+  const [test, setTest] = useState<Awaited<ReturnType<typeof loadStudentCodingTest>> | null>(null);
+  const [language, setLanguage] = useState("");
+  const [files, setFiles] = useState<Record<string, string>>({});
+  const [activeFile, setActiveFile] = useState("code");
+  const [runResult, setRunResult] = useState<{ passed_count: number; total_count: number; results: CodingCaseResult[] } | null>(null);
+  const [submitResult, setSubmitResult] = useState<{ percentage: number; passed: boolean; attempt_number: number; results: CodingCaseResult[]; certificate_issued: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    loadStudentCoding(lesson.id)
-      .then((data) => {
-        setChallenge(data);
-        setCode(data.last_code || data.starter_code);
-        if (data.passed) onPassed();
+    loadStudentCodingTest(lesson.id)
+      .then((value) => {
+        setTest(value);
+        const firstLanguage = value.supported_languages[0];
+        setLanguage(firstLanguage);
+        if (value.mode === "web") {
+          setFiles({
+            html: value.starter_code.html || "<!-- your markup -->",
+            css: value.starter_code.css || "/* your styles */",
+            js: value.starter_code.js || "// your script",
+          });
+          setActiveFile("html");
+        } else {
+          setFiles({ code: value.starter_code[firstLanguage] || value.starter_code.code || "" });
+          setActiveFile("code");
+        }
+        if (value.passed) onPassed();
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Unable to load coding test"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson.id]);
 
   const run = async () => {
-    if (!challenge) return;
-    setRunning(true);
+    if (!test) return;
+    setBusy(true);
     setError("");
     setRunResult(null);
     try {
-      setRunResult(await runCodingTests(code, challenge.function_name, challenge.test_cases));
+      setRunResult(await runCodingTest(test.id, language, files));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to run tests");
+      setError(e instanceof Error ? e.message : "Run failed");
     } finally {
-      setRunning(false);
+      setBusy(false);
     }
   };
 
   const submit = async () => {
-    if (!challenge || !runResult) return;
-    setSubmitting(true);
+    if (!test) return;
+    setBusy(true);
     setError("");
+    setSubmitResult(null);
     try {
-      const result = await submitCodingChallenge(challenge.id, {
-        code,
-        passed_count: runResult.passedCount,
-        total_count: runResult.totalCount,
-      });
-      setSubmitResult(result);
-      if (result.passed) onPassed();
-      setChallenge(await loadStudentCoding(lesson.id));
+      const value = await submitCodingTest(test.id, language, files);
+      setSubmitResult(value);
+      if (value.passed) onPassed();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to submit coding test");
+      setError(e instanceof Error ? e.message : "Submission failed");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   };
 
-  if (error && !challenge) return <Notice error={error} />;
-  if (!challenge) return <div className="p-8 text-center text-[13px] text-[#5A6A8A]">Loading coding test…</div>;
+  if (error && !test) return <Notice error={error} />;
+  if (!test) return <div className="p-8 text-center text-[13px] text-[#5A6A8A]">Loading coding test…</div>;
 
-  if (submitResult?.passed) {
-    return (
-      <div className="p-8 rounded-2xl text-center border bg-emerald-50 border-emerald-200">
-        <Award size={34} className="mx-auto text-emerald-600" />
-        <h3 className="text-[20px] font-bold mt-3">All tests passed!</h3>
-        <p className="text-[13px] mt-2">
-          {submitResult.passed_count}/{submitResult.total_count} test cases passed.
-        </p>
-        {submitResult.certificate_issued && (
-          <p className="text-[12.5px] text-emerald-700 mt-3 font-semibold">
-            Certificate {submitResult.certificate_issued.certificate_number} issued — course
-            complete!
-          </p>
-        )}
-      </div>
-    );
-  }
+  const fileTabs = test.mode === "web" ? ["html", "css", "js"] : ["code"];
+  const monacoLanguage = test.mode === "web" ? MONACO_LANGUAGE[activeFile] : MONACO_LANGUAGE[language] || "javascript";
 
   return (
     <div className="space-y-4">
       <Notice error={error} />
       <div className="p-5 bg-white rounded-2xl border border-slate-200">
-        <h3 className="text-[17px] font-semibold">Coding challenge</h3>
+        <h3 className="text-[17px] font-semibold">Coding test</h3>
         <p className="text-[13px] text-[#5A6A8A] mt-2 whitespace-pre-wrap">
-          {challenge.instructions}
+          {test.problem_statement}
         </p>
         <div className="flex gap-4 mt-4 text-[12px] text-[#5A6A8A] flex-wrap">
-          <span>
-            Function: <code className="font-mono">{challenge.function_name}</code>
-          </span>
-          <span>{challenge.test_cases.length} test cases</span>
-          <span>{challenge.remaining_attempts} attempts left</span>
+          <span>Passing score: {test.passing_percentage}%</span>
+          <span>{test.remaining_attempts} attempts left</span>
+          {test.passed && <span className="text-emerald-600 font-semibold">Passed ✓</span>}
         </div>
       </div>
-      <CodeEditor value={code} onChange={setCode} />
-      <div className="flex gap-3">
-        <button
-          disabled={running || challenge.remaining_attempts === 0}
-          onClick={() => void run()}
-          className="flex items-center gap-2 px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+
+      {test.mode === "algorithmic" && (
+        <select
+          value={language}
+          onChange={(e) => {
+            const next = e.target.value;
+            setLanguage(next);
+            setFiles((f) => ({ code: test.starter_code[next] ?? f.code ?? "" }));
+          }}
+          className="px-3.5 py-2.5 bg-[#EFF2FA] rounded-[10px] text-[13px] outline-none border-[1.5px] border-transparent focus:border-[#1B3A6B]"
         >
-          <Play size={14} /> {running ? "Running…" : "Run Tests"}
-        </button>
-        <button
-          disabled={submitting || !runResult || challenge.remaining_attempts === 0}
-          onClick={() => void submit()}
-          className="flex-1 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
-        >
-          {submitting ? "Submitting…" : "Submit"}
-        </button>
-      </div>
-      {runResult && (
-        <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2">
-          <p className="text-[12.5px] font-semibold">
-            {runResult.passedCount}/{runResult.totalCount} test cases passed
-          </p>
-          {runResult.results.map((r, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-2 p-2.5 rounded-lg text-[12px] ${r.passed ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
+          {test.supported_languages.map((lang) => (
+            <option key={lang} value={lang}>
+              {ALGO_LANGUAGE_LABEL[lang] || lang}
+            </option>
+          ))}
+        </select>
+      )}
+
+      {fileTabs.length > 1 && (
+        <div className="flex gap-1.5">
+          {fileTabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveFile(tab)}
+              className={`px-3.5 py-1.5 rounded-lg text-[12px] font-semibold border ${activeFile === tab ? "bg-[#1B3A6B] text-white border-[#1B3A6B]" : "bg-white text-[#5A6A8A] border-slate-200"}`}
             >
-              {r.passed ? (
-                <Check size={13} className="mt-0.5 shrink-0" />
-              ) : (
-                <X size={13} className="mt-0.5 shrink-0" />
-              )}
-              <span>
-                Test {i + 1}
-                {r.error ? `: ${r.error}` : ""}
-              </span>
-            </div>
+              {tab}
+            </button>
           ))}
         </div>
       )}
-      {submitResult && !submitResult.passed && (
-        <p className="text-[12.5px] text-amber-700">
-          Not all tests passed yet ({submitResult.passed_count}/{submitResult.total_count}). Keep
-          trying — {challenge.remaining_attempts} attempts left.
-        </p>
+
+      <Suspense fallback={<div className="h-[360px] grid place-items-center rounded-xl bg-slate-950 text-slate-300 text-[13px]">Loading code editor…</div>}>
+        <CodeEditor
+          value={files[activeFile] || ""}
+          onChange={(value) => setFiles((prev) => ({ ...prev, [activeFile]: value }))}
+          language={monacoLanguage}
+          height="360px"
+        />
+      </Suspense>
+
+      <div className="flex gap-3">
+        <button
+          disabled={busy}
+          onClick={() => void run()}
+          className="flex items-center gap-1.5 px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+        >
+          <Play size={13} />
+          Run
+        </button>
+        <button
+          disabled={busy || test.remaining_attempts === 0}
+          onClick={() => void submit()}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+        >
+          <Send size={13} />
+          {busy ? "Working…" : "Submit"}
+        </button>
+      </div>
+
+      {runResult && (
+        <div className="p-4 bg-white rounded-2xl border border-slate-200">
+          <p className="text-[12.5px] font-semibold text-[#0F1C3F] mb-2">
+            Run result: {runResult.passed_count}/{runResult.total_count} visible tests passed
+          </p>
+          <CodingResultList results={runResult.results} />
+        </div>
+      )}
+
+      {submitResult && (
+        <div
+          className={`p-6 rounded-2xl border ${submitResult.passed ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}
+        >
+          <div className="text-center">
+            <Award
+              size={30}
+              className={`mx-auto ${submitResult.passed ? "text-emerald-600" : "text-red-500"}`}
+            />
+            <h3 className="text-[16px] font-bold mt-3">
+              {submitResult.passed ? "Coding test passed!" : "Not passed yet"}
+            </h3>
+            <p className="text-[13px] mt-2">
+              Attempt #{submitResult.attempt_number} · {submitResult.percentage}%
+            </p>
+            {submitResult.certificate_issued && (
+              <p className="text-[12.5px] text-emerald-700 font-semibold mt-2">
+                🎉 Certificate issued! Check your Certificates tab.
+              </p>
+            )}
+          </div>
+          <div className="mt-4">
+            <CodingResultList results={submitResult.results} />
+          </div>
+        </div>
       )}
     </div>
   );

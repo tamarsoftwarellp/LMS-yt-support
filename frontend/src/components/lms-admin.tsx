@@ -34,12 +34,9 @@ import {
   Smartphone,
   Building2,
   Code2,
-  Play,
 } from "lucide-react";
 import { InstitutionManagement } from "./institution-management";
 import { SuperAdminPanel as InstitutionApprovalPanel } from "./super-admin";
-import { CodeEditor } from "./monaco-code-editor";
-import { runCodingTests } from "./code-runner";
 import {
   archiveCourse,
   createCourse,
@@ -60,9 +57,9 @@ import {
   loadAdminQuiz,
   saveAdminQuiz,
   publishAdminQuiz,
-  loadAdminCoding,
-  saveAdminCoding,
-  publishAdminCoding,
+  loadAdminCodingTest,
+  saveAdminCodingTest,
+  publishAdminCodingTest,
   loadAdminAssignment,
   saveAdminAssignment,
   publishAdminAssignment,
@@ -82,7 +79,8 @@ import {
   type LessonInput,
   type LessonType,
   type AdminQuizInput,
-  type AdminCodingInput,
+  type CodingTestMode,
+  type AdminCodingTestInput,
   type AdminAssignmentInput,
   type AdminAssignmentSubmission,
   type AdminAnalyticsOverview,
@@ -99,7 +97,7 @@ const LESSON_META: Record<
   article: { label: "Article", icon: AlignLeft },
   quiz: { label: "Quiz", icon: HelpCircle },
   assignment: { label: "Assignment", icon: Paperclip },
-  coding: { label: "Coding Test", icon: Code2 },
+  coding_test: { label: "Coding Test", icon: Code2 },
 };
 const STATUS_BADGE: Record<CourseStatus, string> = {
   draft: "bg-slate-100 text-slate-700 border-slate-200",
@@ -114,6 +112,7 @@ const blankCourse: CourseInput = {
   duration_hours: 1,
   skills: [],
   status: "draft",
+  access_type: "college_allocated",
   thumbnail_url: "",
   instructor_name: "",
 };
@@ -265,7 +264,7 @@ function QuizBuilder({
           className="w-full p-3 border rounded-xl"
           placeholder="Instructions"
         />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="text-[12px]">
             Passing %
             <input
@@ -468,100 +467,72 @@ function QuizBuilder({
   );
 }
 
-const blankTestCaseDraft = (): { inputText: string; expectedText: string } => ({
-  inputText: "[]",
-  expectedText: "",
+const ALGO_LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "python", label: "Python" },
+  { value: "javascript", label: "JavaScript (Node.js)" },
+  { value: "java", label: "Java" },
+  { value: "cpp", label: "C++" },
+];
+const blankCodingCase = (mode: CodingTestMode) => ({
+  title: "",
+  is_hidden: false,
+  weight: 1,
+  stdin: "",
+  expected_output: "",
+  checks:
+    mode === "algorithmic"
+      ? []
+      : [{ target: "html" as const, type: "contains" as const, value: "", description: "" }],
 });
-
-function CodingBuilder({
+const blankCodingTest: AdminCodingTestInput = {
+  mode: "algorithmic",
+  problem_statement: "",
+  supported_languages: ["python"],
+  starter_code: {},
+  maximum_attempts: 5,
+  time_limit_minutes: null,
+  passing_percentage: 100,
+  test_cases: [blankCodingCase("algorithmic")],
+};
+function CodingTestBuilder({
   lessonId,
   onClose,
 }: {
   lessonId: string;
   onClose: () => void;
 }) {
-  const [challengeId, setChallengeId] = useState("");
+  const [id, setId] = useState("");
   const [status, setStatus] = useState("draft");
-  const [instructions, setInstructions] = useState(
-    "Implement the function described below so it passes every test case.",
-  );
-  const [functionName, setFunctionName] = useState("solve");
-  const [starterCode, setStarterCode] = useState(
-    "function solve() {\n  \n}",
-  );
-  const [maximumAttempts, setMaximumAttempts] = useState(10);
-  const [testCases, setTestCases] = useState<
-    { inputText: string; expectedText: string }[]
-  >([blankTestCaseDraft()]);
+  const [form, setForm] = useState<AdminCodingTestInput>(blankCodingTest);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [running, setRunning] = useState(false);
-  const [runResult, setRunResult] = useState<Awaited<
-    ReturnType<typeof runCodingTests>
-  > | null>(null);
-
   useEffect(() => {
-    loadAdminCoding(lessonId)
-      .then((c) => {
-        if (c) {
-          setChallengeId(c.id);
-          setStatus(c.status);
-          setInstructions(c.instructions);
-          setFunctionName(c.function_name);
-          setStarterCode(c.starter_code);
-          setMaximumAttempts(c.maximum_attempts);
-          setTestCases(
-            c.test_cases.length
-              ? c.test_cases.map((tc) => ({
-                  inputText: JSON.stringify(tc.input),
-                  expectedText: JSON.stringify(tc.expected),
-                }))
-              : [blankTestCaseDraft()],
-          );
+    loadAdminCodingTest(lessonId)
+      .then((t) => {
+        if (t) {
+          setId(t.id);
+          setStatus(t.status);
+          setForm({
+            mode: t.mode,
+            problem_statement: t.problem_statement,
+            supported_languages: t.supported_languages,
+            starter_code: t.starter_code,
+            maximum_attempts: t.maximum_attempts,
+            time_limit_minutes: t.time_limit_minutes,
+            passing_percentage: t.passing_percentage,
+            test_cases: t.test_cases.length ? t.test_cases : [blankCodingCase(t.mode)],
+          });
         }
       })
       .catch((e) => setError(errText(e)));
   }, [lessonId]);
-
-  const parseTestCases = ():
-    | { ok: true; value: { input: unknown[]; expected: unknown }[] }
-    | { ok: false; error: string } => {
-    try {
-      const value = testCases.map((tc) => ({
-        input: JSON.parse(tc.inputText || "[]"),
-        expected: JSON.parse(
-          tc.expectedText === "" ? "null" : tc.expectedText,
-        ),
-      }));
-      return { ok: true, value };
-    } catch {
-      return {
-        ok: false,
-        error:
-          "Test case inputs and expected values must be valid JSON — e.g. inputs [1, 2] and expected 3.",
-      };
-    }
-  };
-
   const save = async () => {
-    const parsed = parseTestCases();
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
     setBusy(true);
     setError("");
     try {
-      const payload: AdminCodingInput = {
-        instructions,
-        function_name: functionName,
-        starter_code: starterCode,
-        maximum_attempts: maximumAttempts,
-        test_cases: parsed.value,
-      };
-      const c = await saveAdminCoding(lessonId, payload);
-      setChallengeId(c.id);
-      setStatus(c.status);
+      const t = await saveAdminCodingTest(lessonId, form);
+      setId(t.id);
+      setStatus(t.status);
       toast.success("Coding test draft saved");
     } catch (e) {
       const message = errText(e);
@@ -571,14 +542,13 @@ function CodingBuilder({
       setBusy(false);
     }
   };
-
   const publish = async () => {
-    if (!challengeId) return;
+    if (!id) return;
     setBusy(true);
     setError("");
     try {
-      const c = await publishAdminCoding(challengeId);
-      setStatus(c.status);
+      const t = await publishAdminCodingTest(id);
+      setStatus(t.status);
       toast.success("Coding test published");
     } catch (e) {
       const message = errText(e);
@@ -588,36 +558,29 @@ function CodingBuilder({
       setBusy(false);
     }
   };
-
-  const testStarterCode = async () => {
-    const parsed = parseTestCases();
-    if (!parsed.ok) {
-      setError(parsed.error);
-      return;
-    }
-    setRunning(true);
-    setError("");
-    setRunResult(null);
-    try {
-      setRunResult(
-        await runCodingTests(starterCode, functionName, parsed.value),
-      );
-    } finally {
-      setRunning(false);
-    }
-  };
-
+  const setMode = (mode: CodingTestMode) =>
+    setForm({
+      ...form,
+      mode,
+      supported_languages: mode === "algorithmic" ? ["python"] : [mode],
+      test_cases: [blankCodingCase(mode)],
+    });
+  const toggleLanguage = (value: string) =>
+    setForm({
+      ...form,
+      supported_languages: form.supported_languages.includes(value)
+        ? form.supported_languages.filter((x) => x !== value)
+        : [...form.supported_languages, value],
+    });
   return (
     <div className="fixed inset-0 z-50 bg-[#071326]/70 p-5 overflow-y-auto">
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl p-6 space-y-5">
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl p-6 space-y-5">
         <div className="flex justify-between">
           <div>
             <p className="text-[11px] uppercase text-[#9AA5BE]">
               Coding Test Builder · {status}
             </p>
-            <h2 className="text-[20px] font-bold">
-              Configure coding challenge
-            </h2>
+            <h2 className="text-[20px] font-bold">Configure coding test</h2>
           </div>
           <button onClick={onClose} className="text-[13px]">
             Close
@@ -628,129 +591,173 @@ function CodingBuilder({
             {error}
           </div>
         )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {(["algorithmic", "web", "react"] as CodingTestMode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`p-3 rounded-xl border text-[12.5px] font-semibold capitalize ${form.mode === m ? "border-[#1B3A6B] bg-[#EBF1FA] text-[#1B3A6B]" : "border-slate-200 text-[#5A6A8A]"}`}
+            >
+              {m === "algorithmic" ? "Algorithmic (Python/Java/C++/JS)" : m === "web" ? "Web (HTML/CSS/JS)" : "React (JSX)"}
+            </button>
+          ))}
+        </div>
         <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          rows={3}
+          rows={4}
+          value={form.problem_statement}
+          onChange={(e) => setForm({ ...form, problem_statement: e.target.value })}
           className="w-full p-3 border rounded-xl"
-          placeholder="Instructions shown to students"
+          placeholder="Problem statement / instructions shown to the student"
         />
-        <div className="grid grid-cols-2 gap-3">
+        {form.mode === "algorithmic" && (
+          <div>
+            <p className="text-[12px] font-semibold text-[#5A6A8A] mb-1.5">Allowed languages</p>
+            <div className="flex flex-wrap gap-2">
+              {ALGO_LANGUAGE_OPTIONS.map((opt) => (
+                <label key={opt.value} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[12px] cursor-pointer ${form.supported_languages.includes(opt.value) ? "border-[#1B3A6B] bg-[#EBF1FA]" : "border-slate-200"}`}>
+                  <input type="checkbox" checked={form.supported_languages.includes(opt.value)} onChange={() => toggleLanguage(opt.value)} />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="text-[12px]">
-            Function name
-            <input
-              value={functionName}
-              onChange={(e) => setFunctionName(e.target.value)}
-              className="w-full p-2 border rounded-lg mt-1 font-mono"
-            />
-          </label>
-          <label className="text-[12px]">
-            Maximum attempts
+            Max attempts
             <input
               type="number"
               min={1}
-              value={maximumAttempts}
-              onChange={(e) => setMaximumAttempts(Number(e.target.value))}
+              value={form.maximum_attempts}
+              onChange={(e) => setForm({ ...form, maximum_attempts: Number(e.target.value) })}
+              className="w-full p-2 border rounded-lg mt-1"
+            />
+          </label>
+          <label className="text-[12px]">
+            Passing %
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={form.passing_percentage}
+              onChange={(e) => setForm({ ...form, passing_percentage: Number(e.target.value) })}
+              className="w-full p-2 border rounded-lg mt-1"
+            />
+          </label>
+          <label className="text-[12px]">
+            Time limit (optional, minutes)
+            <input
+              type="number"
+              min={1}
+              value={form.time_limit_minutes || ""}
+              onChange={(e) => setForm({ ...form, time_limit_minutes: e.target.value ? Number(e.target.value) : null })}
               className="w-full p-2 border rounded-lg mt-1"
             />
           </label>
         </div>
-        <div>
-          <p className="text-[12px] font-semibold mb-1.5">
-            Starter code (shown to students)
-          </p>
-          <CodeEditor value={starterCode} onChange={setStarterCode} height="220px" />
-        </div>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[13px] font-semibold">Test cases</p>
-            <button
-              onClick={() =>
-                setTestCases((v) => [...v, blankTestCaseDraft()])
-              }
-              className="text-[12px] text-[#1B3A6B] font-semibold"
-            >
-              + Add test case
-            </button>
+        {form.mode === "algorithmic" ? (
+          <div>
+            <p className="text-[12px] font-semibold text-[#5A6A8A] mb-1.5">Starter code per language (optional)</p>
+            {form.supported_languages.map((lang) => (
+              <textarea
+                key={lang}
+                rows={3}
+                value={form.starter_code[lang] || ""}
+                onChange={(e) => setForm({ ...form, starter_code: { ...form.starter_code, [lang]: e.target.value } })}
+                placeholder={`Starter code for ${ALGO_LANGUAGE_OPTIONS.find((o) => o.value === lang)?.label || lang}`}
+                className="w-full p-2.5 border rounded-xl font-mono text-[12px] mb-2"
+              />
+            ))}
           </div>
-          {testCases.map((tc, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-              <div>
-                <p className="text-[11px] text-[#9AA5BE] mb-1">
-                  Inputs (JSON array) — e.g. [1, 2]
-                </p>
-                <input
-                  value={tc.inputText}
-                  onChange={(e) =>
-                    setTestCases((v) =>
-                      v.map((x, j) =>
-                        j === i ? { ...x, inputText: e.target.value } : x,
-                      ),
-                    )
-                  }
-                  className="w-full p-2 border rounded-lg font-mono text-[12.5px]"
-                />
-              </div>
-              <div>
-                <p className="text-[11px] text-[#9AA5BE] mb-1">
-                  Expected output (JSON) — e.g. 3
-                </p>
-                <input
-                  value={tc.expectedText}
-                  onChange={(e) =>
-                    setTestCases((v) =>
-                      v.map((x, j) =>
-                        j === i ? { ...x, expectedText: e.target.value } : x,
-                      ),
-                    )
-                  }
-                  className="w-full p-2 border rounded-lg font-mono text-[12.5px]"
-                />
-              </div>
-              <button
-                onClick={() =>
-                  setTestCases((v) => v.filter((_, j) => j !== i))
-                }
-                className="p-2 text-red-600 self-end"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-        {runResult && (
-          <div className="p-3 bg-slate-50 rounded-xl text-[12px] space-y-1">
-            <p className="font-semibold">
-              {runResult.passedCount}/{runResult.totalCount} passed running
-              the starter code
-            </p>
-            {runResult.results.map((r, i) => (
-              <p key={i} className={r.passed ? "text-emerald-700" : "text-red-600"}>
-                Test {i + 1}: {r.passed ? "passed" : r.error || "failed"}
-              </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {(form.mode === "web" ? (["html", "css", "js"] as const) : (["code"] as const)).map((key) => (
+              <textarea
+                key={key}
+                rows={4}
+                value={form.starter_code[key] || ""}
+                onChange={(e) => setForm({ ...form, starter_code: { ...form.starter_code, [key]: e.target.value } })}
+                placeholder={`Starter ${key}`}
+                className="w-full p-2.5 border rounded-xl font-mono text-[12px]"
+              />
             ))}
           </div>
         )}
-        <div className="flex gap-3 flex-wrap">
+        <div>
+          <p className="text-[12px] font-semibold text-[#5A6A8A] mb-1.5">Test cases</p>
+          {form.test_cases.map((tc, ti) => (
+            <div key={ti} className="p-3 border rounded-2xl space-y-2 mb-2">
+              <div className="flex gap-2">
+                <input
+                  value={tc.title}
+                  onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => (i === ti ? { ...x, title: e.target.value } : x)) })}
+                  placeholder={`Test case ${ti + 1} title`}
+                  className="flex-1 p-2 border rounded-lg text-[12.5px]"
+                />
+                <label className="flex items-center gap-1.5 text-[11.5px] px-2">
+                  <input type="checkbox" checked={tc.is_hidden} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => (i === ti ? { ...x, is_hidden: e.target.checked } : x)) })} />
+                  Hidden
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={tc.weight}
+                  onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => (i === ti ? { ...x, weight: Number(e.target.value) } : x)) })}
+                  className="w-16 p-2 border rounded-lg text-[12.5px]"
+                  title="Weight"
+                />
+                <button onClick={() => setForm({ ...form, test_cases: form.test_cases.filter((_, i) => i !== ti) })} className="p-2 text-red-600">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              {form.mode === "algorithmic" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <textarea rows={2} value={tc.stdin || ""} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => (i === ti ? { ...x, stdin: e.target.value } : x)) })} placeholder="stdin" className="p-2 border rounded-lg text-[12px] font-mono" />
+                  <textarea rows={2} value={tc.expected_output || ""} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => (i === ti ? { ...x, expected_output: e.target.value } : x)) })} placeholder="expected stdout" className="p-2 border rounded-lg text-[12px] font-mono" />
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {tc.checks.map((check, ci) => (
+                    <div key={ci} className="flex gap-1.5">
+                      <select value={check.target} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => i !== ti ? x : { ...x, checks: x.checks.map((c, j) => j === ci ? { ...c, target: e.target.value as typeof c.target } : c) }) })} className="p-1.5 border rounded-lg text-[11.5px]">
+                        <option value="html">html</option>
+                        <option value="css">css</option>
+                        <option value="js">js</option>
+                        <option value="jsx">jsx</option>
+                      </select>
+                      <select value={check.type} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => i !== ti ? x : { ...x, checks: x.checks.map((c, j) => j === ci ? { ...c, type: e.target.value as typeof c.type } : c) }) })} className="p-1.5 border rounded-lg text-[11.5px]">
+                        <option value="contains">contains</option>
+                        <option value="not_contains">not_contains</option>
+                        <option value="regex">regex</option>
+                      </select>
+                      <input value={check.value} onChange={(e) => setForm({ ...form, test_cases: form.test_cases.map((x, i) => i !== ti ? x : { ...x, checks: x.checks.map((c, j) => j === ci ? { ...c, value: e.target.value } : c) }) })} placeholder="pattern / text" className="flex-1 p-1.5 border rounded-lg text-[11.5px]" />
+                      <button onClick={() => setForm({ ...form, test_cases: form.test_cases.map((x, i) => i !== ti ? x : { ...x, checks: x.checks.filter((_, j) => j !== ci) }) })} className="p-1.5 text-red-600">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setForm({ ...form, test_cases: form.test_cases.map((x, i) => i !== ti ? x : { ...x, checks: [...x.checks, { target: "html" as const, type: "contains" as const, value: "", description: "" }] }) })}
+                    className="text-[11.5px] text-[#1B3A6B]"
+                  >
+                    + Add check
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
           <button
-            disabled={running}
-            onClick={() => void testStarterCode()}
-            className="flex items-center gap-2 px-4 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[12.5px] font-semibold disabled:opacity-50"
+            onClick={() => setForm({ ...form, test_cases: [...form.test_cases, blankCodingCase(form.mode)] })}
+            className="px-4 py-2 border rounded-xl text-[12px]"
           >
-            <Play size={14} /> {running ? "Running…" : "Test starter code"}
+            + Add test case
           </button>
-          <button
-            disabled={busy}
-            onClick={() => void save()}
-            className="px-5 py-2.5 border border-[#1B3A6B] text-[#1B3A6B] rounded-xl text-[13px] disabled:opacity-40 flex items-center gap-2"
-          >
-            <Save size={14} /> Save Draft
+        </div>
+        <div className="flex justify-end gap-2">
+          <button disabled={busy} onClick={save} className="px-5 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[13px]">
+            Save Draft
           </button>
-          <button
-            disabled={busy || !challengeId}
-            onClick={() => void publish()}
-            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[13px] disabled:opacity-40"
-          >
+          <button disabled={busy || !id} onClick={publish} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[13px] disabled:opacity-40">
             Publish Coding Test
           </button>
         </div>
@@ -1075,7 +1082,7 @@ function SubmissionRow({
           Download {item.original_file_name}
         </button>
       )}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <input
           type="number"
           min={0}
@@ -1332,7 +1339,7 @@ export function LMSAdminSection({
   const [assignmentLessonId, setAssignmentLessonId] = useState<string | null>(
     null,
   );
-  const [codingLessonId, setCodingLessonId] = useState<string | null>(null);
+  const [codingTestLessonId, setCodingTestLessonId] = useState<string | null>(null);
   const [submissionsOpen, setSubmissionsOpen] = useState(
     () => window.location.pathname === "/admin/submissions",
   );
@@ -1427,6 +1434,7 @@ export function LMSAdminSection({
         duration_hours: result.duration_hours,
         skills: result.skills,
         status: result.status,
+        access_type: result.access_type,
         thumbnail_url: result.thumbnail_url || "",
         instructor_name: result.instructor_name || "",
       });
@@ -1864,10 +1872,10 @@ export function LMSAdminSection({
           onClose={() => setAssignmentLessonId(null)}
         />
       )}
-      {codingLessonId && (
-        <CodingBuilder
-          lessonId={codingLessonId}
-          onClose={() => setCodingLessonId(null)}
+      {codingTestLessonId && (
+        <CodingTestBuilder
+          lessonId={codingTestLessonId}
+          onClose={() => setCodingTestLessonId(null)}
         />
       )}
       {submissionsOpen && <SubmissionReview onClose={closeOverlay} />}
@@ -2033,7 +2041,7 @@ export function LMSAdminSection({
             <div className="h-px bg-slate-100 my-3" />
             <button
               onClick={() => openSubmissions()}
-              className="w-full flex items-center gap-3 p-3 rounded-xl text-left text-[#5A6A8A] hover:bg-[#F8FAFD]"
+              className={`w-full flex items-center gap-3 p-3 rounded-xl text-left ${submissionsOpen ? "bg-[#EBF1FA] text-[#1B3A6B]" : "text-[#5A6A8A] hover:bg-[#F8FAFD]"}`}
             >
               <span className="w-9 h-9 rounded-xl bg-[#EFF2FA] flex items-center justify-center">
                 <ClipboardCheck size={16} />
@@ -2047,7 +2055,7 @@ export function LMSAdminSection({
             </button>
             <button
               onClick={() => openCertificates()}
-              className="w-full flex items-center gap-3 p-3 rounded-xl text-left text-[#5A6A8A] hover:bg-[#F8FAFD]"
+              className={`w-full flex items-center gap-3 p-3 rounded-xl text-left ${certificatesOpen ? "bg-[#EBF1FA] text-[#1B3A6B]" : "text-[#5A6A8A] hover:bg-[#F8FAFD]"}`}
             >
               <span className="w-9 h-9 rounded-xl bg-[#EFF2FA] flex items-center justify-center">
                 <ShieldCheck size={16} />
@@ -2061,7 +2069,7 @@ export function LMSAdminSection({
             </button>
             <button
               onClick={() => openCollegeRequests()}
-              className="w-full flex items-center gap-3 p-3 rounded-xl text-left text-[#5A6A8A] hover:bg-[#F8FAFD]"
+              className={`w-full flex items-center gap-3 p-3 rounded-xl text-left ${collegeRequestsOpen ? "bg-[#EBF1FA] text-[#1B3A6B]" : "text-[#5A6A8A] hover:bg-[#F8FAFD]"}`}
             >
               <span className="w-9 h-9 rounded-xl bg-[#EFF2FA] flex items-center justify-center">
                 <Building2 size={16} />
@@ -2326,6 +2334,9 @@ export function LMSAdminSection({
                                 {course.level} • {course.duration_hours}h •{" "}
                                 {course.section_count} sections
                               </p>
+                              <p className={`text-[10.5px] font-semibold mt-1 ${course.access_type === "open_elective" ? "text-violet-700" : "text-blue-700"}`}>
+                                {course.access_type === "open_elective" ? "Open elective" : "College allocated"}
+                              </p>
                             </button>
                           </td>
                           <td className="px-4 py-4">
@@ -2403,7 +2414,7 @@ export function LMSAdminSection({
                       the draft is created.
                     </p>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {[
                       { n: 1, label: "Basics" },
                       { n: 2, label: "Configuration" },
@@ -2507,6 +2518,25 @@ export function LMSAdminSection({
                             <option key={level}>{level}</option>
                           ))}
                         </select>
+                      </label>
+                      <label className="md:col-span-2 text-[12px] font-semibold">
+                        Course access
+                        <select
+                          value={courseForm.access_type}
+                          onChange={(e) =>
+                            setCourseForm((value) => ({
+                              ...value,
+                              access_type: e.target.value as CourseInput["access_type"],
+                            }))
+                          }
+                          className="w-full mt-1.5 px-3 py-3 rounded-xl border bg-[#F8FAFD]"
+                        >
+                          <option value="college_allocated">College allocated — program/batch controlled</option>
+                          <option value="open_elective">Open elective — student self-enrollment</option>
+                        </select>
+                        <span className="block mt-1 text-[10.5px] font-normal text-[#5A6A8A]">
+                          Open electives remain read-only for College Admin and do not count in official college progress reports.
+                        </span>
                       </label>
                       <label className="text-[12px] font-semibold">
                         Duration (hours)
@@ -2649,6 +2679,9 @@ export function LMSAdminSection({
                       >
                         {detail.status}
                       </span>
+                      <span className={`inline-flex ml-2 px-2.5 py-1 rounded-full text-[11px] font-semibold ${detail.access_type === "open_elective" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>
+                        {detail.access_type === "open_elective" ? "Open elective" : "College allocated"}
+                      </span>
                       <h2
                         className="text-[22px] font-bold mt-2"
                         style={{ fontFamily: "var(--font-serif)" }}
@@ -2702,6 +2735,19 @@ export function LMSAdminSection({
                       {LEVELS.map((level) => (
                         <option key={level}>{level}</option>
                       ))}
+                    </select>
+                    <select
+                      value={courseForm.access_type}
+                      onChange={(e) =>
+                        setCourseForm((value) => ({
+                          ...value,
+                          access_type: e.target.value as CourseInput["access_type"],
+                        }))
+                      }
+                      className="w-full px-3 py-2.5 rounded-xl border border-[rgba(27,58,107,0.12)] bg-[#F8FAFD] outline-none"
+                    >
+                      <option value="college_allocated">College allocated course</option>
+                      <option value="open_elective">Open elective course</option>
                     </select>
                     <input
                       type="number"
@@ -2959,10 +3005,10 @@ export function LMSAdminSection({
                                         Configure Assignment
                                       </button>
                                     )}
-                                    {lesson.lesson_type === "coding" && (
+                                    {lesson.lesson_type === "coding_test" && (
                                       <button
                                         onClick={() =>
-                                          setCodingLessonId(lesson.id)
+                                          setCodingTestLessonId(lesson.id)
                                         }
                                         className="mt-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-[11px] font-semibold"
                                       >

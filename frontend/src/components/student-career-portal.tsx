@@ -1,145 +1,1472 @@
 import { useEffect, useRef, useState } from "react";
-import { Activity, Award, BarChart3, BookOpen, Brain, Check, ChevronDown, ChevronRight, Clock, Download, ExternalLink, FileCheck2, FileText, Flame, GraduationCap, LogOut, Menu, Plus, RefreshCw, Route, ShieldCheck, Sparkles, Target, Trash2, Upload, UserRound, Wrench } from "lucide-react";
+import {
+  Activity,
+  Award,
+  BarChart3,
+  BookOpen,
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Download,
+  ExternalLink,
+  FileCheck2,
+  FileText,
+  Flame,
+  GraduationCap,
+  LogOut,
+  Menu,
+  Plus,
+  RefreshCw,
+  Route,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Trash2,
+  Upload,
+  UserRound,
+  Wrench,
+} from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { getCurrentStudent, studentDownload } from "../api/student-auth";
 import type { CurrentStudent } from "../api/student-auth";
-import { checkUploadedResumeAts, enrollCourse, generateRoadmap, loadEnrollments, loadGoal, loadResume, loadRoadmap, loadSkills, saveGoal, saveSkills, uploadResume, loadStudentDashboard, loadCertificates, generateCertificate } from "../api/student-career";
-import type { CareerGoal, Enrollment, ResumeInfo, Roadmap, StudentSkill, UploadedResumeAts } from "../api/student-career";
+import {
+  checkUploadedResumeAts,
+  enrollCourse,
+  generateRoadmap,
+  loadEnrollments,
+  loadGoal,
+  loadResume,
+  loadRoadmap,
+  loadSkills,
+  saveGoal,
+  saveSkills,
+  uploadResume,
+  loadStudentDashboard,
+  loadCertificates,
+  generateCertificate,
+} from "../api/student-career";
+import type {
+  CareerGoal,
+  Enrollment,
+  ResumeInfo,
+  Roadmap,
+  StudentSkill,
+  UploadedResumeAts,
+} from "../api/student-career";
 import { AtsResumeBuilder } from "./ats-resume-builder";
 
-type Section = "dashboard" | "skills" | "goal" | "resume" | "ats-resume" | "roadmap" | "certificates";
-const SECTION_PATH: Record<Section,string> = {
-  dashboard:"/student/dashboard",
-  skills:"/student/skills",
-  goal:"/student/career-goal",
-  resume:"/student/upload-resume",
-  "ats-resume":"/student/ats-resume",
-  roadmap:"/student/roadmap",
-  certificates:"/student/certificates",
+type Section =
+  | "dashboard"
+  | "skills"
+  | "goal"
+  | "resume"
+  | "ats-resume"
+  | "roadmap"
+  | "certificates";
+const SECTION_PATH: Record<Section, string> = {
+  dashboard: "/student/dashboard",
+  skills: "/student/skills",
+  goal: "/student/career-goal",
+  resume: "/student/upload-resume",
+  "ats-resume": "/student/ats-resume",
+  roadmap: "/student/roadmap",
+  certificates: "/student/certificates",
 };
-function sectionFromPath(pathname:string):Section {
-  const match=(Object.entries(SECTION_PATH) as [Section,string][]).find(([,path])=>pathname===path||pathname.startsWith(`${path}/`));
-  return match?.[0]||"dashboard";
+function sectionFromPath(pathname: string): Section {
+  const match = (Object.entries(SECTION_PATH) as [Section, string][]).find(
+    ([, path]) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+  return match?.[0] || "dashboard";
 }
 const NAV = [
-  { key: "dashboard" as const, label: "Dashboard", desc: "Progress at a glance", icon: BarChart3 },
-  { key: "skills" as const, label: "My Skills", desc: "What you know today", icon: Wrench },
-  { key: "goal" as const, label: "Career Goal", desc: "Where you want to go", icon: Target },
-  { key: "resume" as const, label: "Upload Resume", desc: "Optional roadmap context", icon: FileText },
-  { key: "ats-resume" as const, label: "ATS Resume Builder", desc: "Generate & download", icon: FileCheck2 },
-  { key: "roadmap" as const, label: "My Roadmap", desc: "AI learning path", icon: Route },
-  { key: "certificates" as const, label: "Certificates", desc: "Verified achievements", icon: ShieldCheck },
+  {
+    key: "dashboard" as const,
+    label: "Dashboard",
+    desc: "Progress at a glance",
+    icon: BarChart3,
+  },
+  {
+    key: "skills" as const,
+    label: "My Skills",
+    desc: "What you know today",
+    icon: Wrench,
+  },
+  {
+    key: "goal" as const,
+    label: "Career Goal",
+    desc: "Where you want to go",
+    icon: Target,
+  },
+  {
+    key: "resume" as const,
+    label: "Upload Resume",
+    desc: "Optional roadmap context",
+    icon: FileText,
+  },
+  {
+    key: "ats-resume" as const,
+    label: "ATS Resume Builder",
+    desc: "Generate & download",
+    icon: FileCheck2,
+  },
+  {
+    key: "roadmap" as const,
+    label: "My Roadmap",
+    desc: "AI learning path",
+    icon: Route,
+  },
+  {
+    key: "certificates" as const,
+    label: "Certificates",
+    desc: "Verified achievements",
+    icon: ShieldCheck,
+  },
 ];
-const field = "w-full px-3.5 py-2.5 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F] outline-none focus:border-[#1B3A6B] focus:bg-white transition-all";
+const field =
+  "w-full px-3.5 py-2.5 bg-[#EFF2FA] border-[1.5px] border-transparent rounded-[10px] text-[13px] text-[#0F1C3F] outline-none focus:border-[#1B3A6B] focus:bg-white transition-all";
 
 function Notice({ error, success }: { error?: string; success?: string }) {
-  useEffect(()=>{if(error)toast.error(error);else if(success)toast.success(success);},[error,success]);
+  useEffect(() => {
+    if (error) toast.error(error);
+    else if (success) toast.success(success);
+  }, [error, success]);
   return null;
 }
 
 function SkillsView({ onReady }: { onReady: () => void }) {
   const [items, setItems] = useState<StudentSkill[]>([]);
-  const [draft, setDraft] = useState<StudentSkill>({ name: "", category: "Frontend", proficiency_level: "Beginner", experience_months: 0 });
-  const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState("");
-  useEffect(() => { loadSkills().then(setItems).catch(e => setError(e.message)); }, []);
-  const add = () => { if (!draft.name.trim()) return; setItems(x => [...x, { ...draft, name: draft.name.trim() }]); setDraft({ name: "", category: "Frontend", proficiency_level: "Beginner", experience_months: 0 }); };
-  const save = async () => { setSaving(true); setError(""); try { const result = await saveSkills(items); setItems(result); setMessage("Skills saved successfully."); onReady(); } catch (e) { setError(e instanceof Error ? e.message : "Unable to save skills"); } finally { setSaving(false); } };
-  return <div className="space-y-5">
-    <div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>What skills do you have?</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Add your current skills honestly. Your roadmap will start from this foundation.</p></div>
-    <Notice error={error} success={message}/>
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_0.8fr_auto] gap-3 p-4 bg-[#F4F7FC] rounded-2xl border border-[--border]">
-      <input className={field} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})} placeholder="Skill, e.g. JavaScript" />
-      <select className={field} value={draft.category} onChange={e=>setDraft({...draft,category:e.target.value})}>{["Frontend","Backend","Programming Language","Database","DevOps","AI/ML","Design","Soft Skill","Other"].map(x=><option key={x}>{x}</option>)}</select>
-      <select className={field} value={draft.proficiency_level} onChange={e=>setDraft({...draft,proficiency_level:e.target.value as StudentSkill["proficiency_level"]})}>{["Beginner","Intermediate","Advanced","Expert"].map(x=><option key={x}>{x}</option>)}</select>
-      <input className={field} type="number" min={0} max={600} value={draft.experience_months ?? 0} onChange={e=>setDraft({...draft,experience_months:Number(e.target.value)})} placeholder="Months" />
-      <button onClick={add} className="min-h-10 px-4 bg-[#1B3A6B] text-white rounded-[10px] hover:bg-[#122748] flex items-center justify-center"><Plus size={16}/><span className="xl:hidden ml-2 text-[12px] font-semibold">Add Skill</span></button>
+  const [draft, setDraft] = useState<StudentSkill>({
+    name: "",
+    category: "Frontend",
+    proficiency_level: "Beginner",
+    experience_months: 0,
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    loadSkills()
+      .then(setItems)
+      .catch((e) => setError(e.message));
+  }, []);
+  const add = () => {
+    if (!draft.name.trim()) return;
+    setItems((x) => [...x, { ...draft, name: draft.name.trim() }]);
+    setDraft({
+      name: "",
+      category: "Frontend",
+      proficiency_level: "Beginner",
+      experience_months: 0,
+    });
+  };
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const result = await saveSkills(items);
+      setItems(result);
+      setMessage("Skills saved successfully.");
+      onReady();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save skills");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2
+          className="text-[21px] text-[#0F1C3F]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          What skills do you have?
+        </h2>
+        <p className="text-[13px] text-[#5A6A8A] mt-1">
+          Add your current skills honestly. Your roadmap will start from this
+          foundation.
+        </p>
+      </div>
+      <Notice error={error} success={message} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_0.8fr_auto] gap-3 p-4 bg-[#F4F7FC] rounded-2xl border border-[--border]">
+        <input
+          className={field}
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          placeholder="Skill, e.g. JavaScript"
+        />
+        <select
+          className={field}
+          value={draft.category}
+          onChange={(e) => setDraft({ ...draft, category: e.target.value })}
+        >
+          {[
+            "Frontend",
+            "Backend",
+            "Programming Language",
+            "Database",
+            "DevOps",
+            "AI/ML",
+            "Design",
+            "Soft Skill",
+            "Other",
+          ].map((x) => (
+            <option key={x}>{x}</option>
+          ))}
+        </select>
+        <select
+          className={field}
+          value={draft.proficiency_level}
+          onChange={(e) =>
+            setDraft({
+              ...draft,
+              proficiency_level: e.target
+                .value as StudentSkill["proficiency_level"],
+            })
+          }
+        >
+          {["Beginner", "Intermediate", "Advanced", "Expert"].map((x) => (
+            <option key={x}>{x}</option>
+          ))}
+        </select>
+        <input
+          className={field}
+          type="number"
+          min={0}
+          max={600}
+          value={draft.experience_months ?? 0}
+          onChange={(e) =>
+            setDraft({ ...draft, experience_months: Number(e.target.value) })
+          }
+          placeholder="Months"
+        />
+        <button
+          onClick={add}
+          className="min-h-10 px-4 bg-[#1B3A6B] text-white rounded-[10px] hover:bg-[#122748] flex items-center justify-center"
+        >
+          <Plus size={16} />
+          <span className="xl:hidden ml-2 text-[12px] font-semibold">
+            Add Skill
+          </span>
+        </button>
+      </div>
+      <div className="space-y-2">
+        {items.map((s, i) => (
+          <div
+            key={`${s.name}-${i}`}
+            className="flex items-center gap-4 p-4 bg-white border border-[--border] rounded-xl"
+          >
+            <div className="w-9 h-9 rounded-lg bg-[#EBF1FA] flex items-center justify-center">
+              <Wrench size={15} className="text-[#1B3A6B]" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[13.5px] font-semibold text-[#0F1C3F]">
+                {s.name}
+              </p>
+              <p className="text-[11.5px] text-[#5A6A8A]">
+                {s.category} · {s.proficiency_level}
+                {s.experience_months ? ` · ${s.experience_months} months` : ""}
+              </p>
+            </div>
+            <button
+              onClick={() => setItems((x) => x.filter((_, n) => n !== i))}
+              className="p-2 text-[#9AA5BE] hover:text-red-500"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+      {items.length === 0 && (
+        <div className="py-10 text-center text-[13px] text-[#9AA5BE] border-2 border-dashed border-slate-200 rounded-2xl">
+          No skills added yet.
+        </div>
+      )}
+      <div className="flex justify-end">
+        <button
+          disabled={saving || !items.length}
+          onClick={save}
+          className="px-5 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[13px] font-semibold disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save Skills"}
+        </button>
+      </div>
     </div>
-    <div className="space-y-2">{items.map((s,i)=><div key={`${s.name}-${i}`} className="flex items-center gap-4 p-4 bg-white border border-[--border] rounded-xl">
-      <div className="w-9 h-9 rounded-lg bg-[#EBF1FA] flex items-center justify-center"><Wrench size={15} className="text-[#1B3A6B]"/></div><div className="flex-1"><p className="text-[13.5px] font-semibold text-[#0F1C3F]">{s.name}</p><p className="text-[11.5px] text-[#5A6A8A]">{s.category} · {s.proficiency_level}{s.experience_months ? ` · ${s.experience_months} months` : ""}</p></div><button onClick={()=>setItems(x=>x.filter((_,n)=>n!==i))} className="p-2 text-[#9AA5BE] hover:text-red-500"><Trash2 size={14}/></button>
-    </div>)}</div>
-    {items.length===0&&<div className="py-10 text-center text-[13px] text-[#9AA5BE] border-2 border-dashed border-slate-200 rounded-2xl">No skills added yet.</div>}
-    <div className="flex justify-end"><button disabled={saving||!items.length} onClick={save} className="px-5 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[13px] font-semibold disabled:opacity-50">{saving?"Saving…":"Save Skills"}</button></div>
-  </div>;
+  );
 }
 
 function GoalView({ onReady }: { onReady: () => void }) {
-  const [goal,setGoal]=useState<CareerGoal>({target_role:"",preferred_domain:"",current_level:"Beginner",target_duration_months:6,weekly_learning_hours:10,goal_description:""});
-  const [saving,setSaving]=useState(false); const [error,setError]=useState(""); const [success,setSuccess]=useState("");
-  useEffect(()=>{loadGoal().then(x=>x&&setGoal(x)).catch(e=>setError(e.message));},[]);
-  const save=async()=>{setSaving(true);setError("");try{setGoal(await saveGoal(goal));setSuccess("Career goal saved successfully.");onReady();}catch(e){setError(e instanceof Error?e.message:"Unable to save goal");}finally{setSaving(false);}};
-  return <div className="space-y-6"><div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>Define your career goal</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Tell us the role you want and the time you can invest.</p></div><Notice error={error} success={success}/>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <label className="space-y-1.5"><span className="text-[13px] font-medium">Target Role *</span><input className={field} value={goal.target_role} onChange={e=>setGoal({...goal,target_role:e.target.value})} placeholder="Full Stack Developer"/></label>
-      <label className="space-y-1.5"><span className="text-[13px] font-medium">Preferred Domain *</span><input className={field} value={goal.preferred_domain} onChange={e=>setGoal({...goal,preferred_domain:e.target.value})} placeholder="Web Development"/></label>
-      <label className="space-y-1.5"><span className="text-[13px] font-medium">Current Level</span><select className={field} value={goal.current_level} onChange={e=>setGoal({...goal,current_level:e.target.value as CareerGoal["current_level"]})}>{["Beginner","Intermediate","Advanced"].map(x=><option key={x}>{x}</option>)}</select></label>
-      <label className="space-y-1.5"><span className="text-[13px] font-medium">Roadmap Duration</span><select className={field} value={goal.target_duration_months} onChange={e=>setGoal({...goal,target_duration_months:Number(e.target.value)})}>{[3,6,9,12].map(x=><option key={x} value={x}>{x} months</option>)}</select></label>
-      <label className="space-y-1.5"><span className="text-[13px] font-medium">Weekly Learning Hours</span><input className={field} type="number" min={1} max={60} value={goal.weekly_learning_hours} onChange={e=>setGoal({...goal,weekly_learning_hours:Number(e.target.value)})}/></label>
-      <label className="space-y-1.5 md:col-span-2"><span className="text-[13px] font-medium">Goal Description <span className="text-[#9AA5BE]">(optional)</span></span><textarea className={`${field} resize-none`} rows={4} value={goal.goal_description||""} onChange={e=>setGoal({...goal,goal_description:e.target.value})} placeholder="What kind of work do you want to be ready for?"/></label>
-    </div><div className="flex justify-end"><button disabled={saving||!goal.target_role||!goal.preferred_domain} onClick={save} className="px-5 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[13px] font-semibold disabled:opacity-50">{saving?"Saving…":"Save Career Goal"}</button></div>
-  </div>;
+  const [goal, setGoal] = useState<CareerGoal>({
+    target_role: "",
+    preferred_domain: "",
+    current_level: "Beginner",
+    target_duration_months: 6,
+    weekly_learning_hours: 10,
+    goal_description: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  useEffect(() => {
+    loadGoal()
+      .then((x) => x && setGoal(x))
+      .catch((e) => setError(e.message));
+  }, []);
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      setGoal(await saveGoal(goal));
+      setSuccess("Career goal saved successfully.");
+      onReady();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save goal");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2
+          className="text-[21px] text-[#0F1C3F]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          Define your career goal
+        </h2>
+        <p className="text-[13px] text-[#5A6A8A] mt-1">
+          Tell us the role you want and the time you can invest.
+        </p>
+      </div>
+      <Notice error={error} success={success} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <label className="space-y-1.5">
+          <span className="text-[13px] font-medium">Target Role *</span>
+          <input
+            className={field}
+            value={goal.target_role}
+            onChange={(e) => setGoal({ ...goal, target_role: e.target.value })}
+            placeholder="Full Stack Developer"
+          />
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-[13px] font-medium">Preferred Domain *</span>
+          <input
+            className={field}
+            value={goal.preferred_domain}
+            onChange={(e) =>
+              setGoal({ ...goal, preferred_domain: e.target.value })
+            }
+            placeholder="Web Development"
+          />
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-[13px] font-medium">Current Level</span>
+          <select
+            className={field}
+            value={goal.current_level}
+            onChange={(e) =>
+              setGoal({
+                ...goal,
+                current_level: e.target.value as CareerGoal["current_level"],
+              })
+            }
+          >
+            {["Beginner", "Intermediate", "Advanced"].map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-[13px] font-medium">Roadmap Duration</span>
+          <select
+            className={field}
+            value={goal.target_duration_months}
+            onChange={(e) =>
+              setGoal({
+                ...goal,
+                target_duration_months: Number(e.target.value),
+              })
+            }
+          >
+            {[3, 6, 9, 12].map((x) => (
+              <option key={x} value={x}>
+                {x} months
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-[13px] font-medium">Weekly Learning Hours</span>
+          <input
+            className={field}
+            type="number"
+            min={1}
+            max={60}
+            value={goal.weekly_learning_hours}
+            onChange={(e) =>
+              setGoal({
+                ...goal,
+                weekly_learning_hours: Number(e.target.value),
+              })
+            }
+          />
+        </label>
+        <label className="space-y-1.5 md:col-span-2">
+          <span className="text-[13px] font-medium">
+            Goal Description <span className="text-[#9AA5BE]">(optional)</span>
+          </span>
+          <textarea
+            className={`${field} resize-none`}
+            rows={4}
+            value={goal.goal_description || ""}
+            onChange={(e) =>
+              setGoal({ ...goal, goal_description: e.target.value })
+            }
+            placeholder="What kind of work do you want to be ready for?"
+          />
+        </label>
+      </div>
+      <div className="flex justify-end">
+        <button
+          disabled={saving || !goal.target_role || !goal.preferred_domain}
+          onClick={save}
+          className="px-5 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[13px] font-semibold disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save Career Goal"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ResumeView({ onReady }: { onReady: () => void }) {
-  const [resume,setResume]=useState<ResumeInfo|null>(null);const [uploading,setUploading]=useState(false);const [scoring,setScoring]=useState(false);const [ats,setAts]=useState<UploadedResumeAts|null>(null);const [error,setError]=useState("");
-  useEffect(()=>{loadResume().then(value=>{setResume(value);setAts(value?.parsed_data.ats_evaluation||null);}).catch(e=>setError(e.message));},[]);
-  const upload=async(file?:File)=>{if(!file)return;setUploading(true);setError("");setAts(null);try{const result=await uploadResume(file);setResume(result);onReady();}catch(e){setError(e instanceof Error?e.message:"Upload failed");}finally{setUploading(false);}};
-  const score=async()=>{setScoring(true);setError("");try{setAts(await checkUploadedResumeAts());}catch(e){setError(e instanceof Error?e.message:"ATS scoring failed");}finally{setScoring(false);}};
-  return <div className="space-y-6"><div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>Add your resume</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Optional. It gives the roadmap more context about your projects and experience.</p></div><Notice error={error}/>
-    <label className="flex flex-col items-center gap-3 py-12 border-2 border-dashed border-[#1B3A6B]/25 bg-[#F8FAFD] rounded-2xl cursor-pointer hover:bg-[#EBF1FA]/50 transition-colors"><div className="w-12 h-12 rounded-xl bg-[#EBF1FA] flex items-center justify-center">{uploading?<RefreshCw size={20} className="animate-spin text-[#1B3A6B]"/>:<Upload size={20} className="text-[#1B3A6B]"/>}</div><div className="text-center"><p className="text-[13.5px] font-semibold text-[#1B3A6B]">{uploading?"Processing resume…":"Choose PDF or DOCX"}</p><p className="text-[11.5px] text-[#9AA5BE] mt-1">Maximum 5 MB</p></div><input type="file" accept=".pdf,.docx" className="hidden" disabled={uploading} onChange={e=>upload(e.target.files?.[0])}/></label>
-    {resume&&<div className="p-5 border border-emerald-200 bg-emerald-50 rounded-2xl"><div className="flex gap-4"><div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center"><FileText size={18} className="text-emerald-600"/></div><div className="flex-1"><p className="text-[13.5px] font-semibold text-[#0F1C3F]">{resume.file_name}</p><p className="text-[11.5px] text-emerald-700 mt-0.5">{resume.parsing_status==="processed"?"Resume processed successfully":resume.parsing_status}</p>{resume.parsed_data.detected_skills?.length?<div className="flex flex-wrap gap-1.5 mt-3">{resume.parsed_data.detected_skills.map(x=><span key={x} className="px-2 py-1 rounded-full bg-white text-[10.5px] text-[#1B3A6B]">{x}</span>)}</div>:null}</div><Check size={18} className="text-emerald-600"/></div>{resume.parsing_status==="processed"&&<button onClick={score} disabled={scoring} className="w-full mt-4 py-2.5 rounded-xl bg-[#1B3A6B] text-white text-[12px] font-semibold disabled:opacity-50 flex justify-center items-center gap-2"><BarChart3 size={14}/>{scoring?"Checking ATS score…":ats?"Recheck ATS Score":"Check ATS Score"}</button>}</div>}
-    {ats&&<div className="border border-[#E3E8F2] rounded-2xl overflow-hidden"><div className="p-5 bg-[#F8FAFD] flex items-center gap-4"><div className="w-16 h-16 rounded-full border-[6px] border-emerald-500 flex items-center justify-center text-[18px] font-bold text-[#0F1C3F]">{ats.score}</div><div><h3 className="font-semibold text-[#0F1C3F]">Uploaded Resume ATS Score</h3><p className="text-[12px] text-[#5A6A8A]">{ats.grade} · {ats.word_count} words</p></div></div><div className="p-5 grid md:grid-cols-2 gap-5"><div><p className="text-[12px] font-semibold text-[#0F1C3F] mb-2">Score breakdown</p>{Object.entries(ats.breakdown).map(([key,value])=><div key={key} className="flex justify-between py-1.5 text-[11.5px] border-b border-[#EFF2FA]"><span className="capitalize text-[#5A6A8A]">{key.replaceAll("_"," ")}</span><b>{value}</b></div>)}</div><div><p className="text-[12px] font-semibold text-[#0F1C3F] mb-2">How to improve</p>{ats.suggestions.length?ats.suggestions.map(x=><p key={x} className="text-[11.5px] text-amber-700 mb-2">• {x}</p>):<p className="text-[11.5px] text-emerald-700">No major improvements required.</p>}</div></div></div>}
-  </div>;
+  const [resume, setResume] = useState<ResumeInfo | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [scoring, setScoring] = useState(false);
+  const [ats, setAts] = useState<UploadedResumeAts | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    loadResume()
+      .then((value) => {
+        setResume(value);
+        setAts(value?.parsed_data.ats_evaluation || null);
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
+    setError("");
+    setAts(null);
+    try {
+      const result = await uploadResume(file);
+      setResume(result);
+      onReady();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+  const score = async () => {
+    setScoring(true);
+    setError("");
+    try {
+      setAts(await checkUploadedResumeAts());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ATS scoring failed");
+    } finally {
+      setScoring(false);
+    }
+  };
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2
+          className="text-[21px] text-[#0F1C3F]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          Add your resume
+        </h2>
+        <p className="text-[13px] text-[#5A6A8A] mt-1">
+          Optional. It gives the roadmap more context about your projects and
+          experience.
+        </p>
+      </div>
+      <Notice error={error} />
+      <label className="flex flex-col items-center gap-3 py-12 border-2 border-dashed border-[#1B3A6B]/25 bg-[#F8FAFD] rounded-2xl cursor-pointer hover:bg-[#EBF1FA]/50 transition-colors">
+        <div className="w-12 h-12 rounded-xl bg-[#EBF1FA] flex items-center justify-center">
+          {uploading ? (
+            <RefreshCw size={20} className="animate-spin text-[#1B3A6B]" />
+          ) : (
+            <Upload size={20} className="text-[#1B3A6B]" />
+          )}
+        </div>
+        <div className="text-center">
+          <p className="text-[13.5px] font-semibold text-[#1B3A6B]">
+            {uploading ? "Processing resume…" : "Choose PDF or DOCX"}
+          </p>
+          <p className="text-[11.5px] text-[#9AA5BE] mt-1">Maximum 5 MB</p>
+        </div>
+        <input
+          type="file"
+          accept=".pdf,.docx"
+          className="hidden"
+          disabled={uploading}
+          onChange={(e) => upload(e.target.files?.[0])}
+        />
+      </label>
+      {resume && (
+        <div className="p-5 border border-emerald-200 bg-emerald-50 rounded-2xl">
+          <div className="flex gap-4">
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
+              <FileText size={18} className="text-emerald-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[13.5px] font-semibold text-[#0F1C3F]">
+                {resume.file_name}
+              </p>
+              <p className="text-[11.5px] text-emerald-700 mt-0.5">
+                {resume.parsing_status === "processed"
+                  ? "Resume processed successfully"
+                  : resume.parsing_status}
+              </p>
+              {resume.parsed_data.detected_skills?.length ? (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {resume.parsed_data.detected_skills.map((x) => (
+                    <span
+                      key={x}
+                      className="px-2 py-1 rounded-full bg-white text-[10.5px] text-[#1B3A6B]"
+                    >
+                      {x}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <Check size={18} className="text-emerald-600" />
+          </div>
+          {resume.parsing_status === "processed" && (
+            <button
+              onClick={score}
+              disabled={scoring}
+              className="w-full mt-4 py-2.5 rounded-xl bg-[#1B3A6B] text-white text-[12px] font-semibold disabled:opacity-50 flex justify-center items-center gap-2"
+            >
+              <BarChart3 size={14} />
+              {scoring
+                ? "Checking ATS score…"
+                : ats
+                  ? "Recheck ATS Score"
+                  : "Check ATS Score"}
+            </button>
+          )}
+        </div>
+      )}
+      {ats && (
+        <div className="border border-[#E3E8F2] rounded-2xl overflow-hidden">
+          <div className="p-5 bg-[#F8FAFD] flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full border-[6px] border-emerald-500 flex items-center justify-center text-[18px] font-bold text-[#0F1C3F]">
+              {ats.score}
+            </div>
+            <div>
+              <h3 className="font-semibold text-[#0F1C3F]">
+                Uploaded Resume ATS Score
+              </h3>
+              <p className="text-[12px] text-[#5A6A8A]">
+                {ats.grade} · {ats.word_count} words
+              </p>
+            </div>
+          </div>
+          <div className="p-5 grid md:grid-cols-2 gap-5">
+            <div>
+              <p className="text-[12px] font-semibold text-[#0F1C3F] mb-2">
+                Score breakdown
+              </p>
+              {Object.entries(ats.breakdown).map(([key, value]) => (
+                <div
+                  key={key}
+                  className="flex justify-between py-1.5 text-[11.5px] border-b border-[#EFF2FA]"
+                >
+                  <span className="capitalize text-[#5A6A8A]">
+                    {key.replaceAll("_", " ")}
+                  </span>
+                  <b>{value}</b>
+                </div>
+              ))}
+            </div>
+            <div>
+              <p className="text-[12px] font-semibold text-[#0F1C3F] mb-2">
+                How to improve
+              </p>
+              {ats.suggestions.length ? (
+                ats.suggestions.map((x) => (
+                  <p key={x} className="text-[11.5px] text-amber-700 mb-2">
+                    • {x}
+                  </p>
+                ))
+              ) : (
+                <p className="text-[11.5px] text-emerald-700">
+                  No major improvements required.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function RoadmapView({ readiness, onEnroll, onOpenLMS }: { readiness:{skills:boolean;goal:boolean}; onEnroll:()=>void; onOpenLMS:(courseId?:string)=>void }) {
-  const [roadmap,setRoadmap]=useState<Roadmap|null>(null);const [generating,setGenerating]=useState(false);const [error,setError]=useState("");const [enrolled,setEnrolled]=useState<Set<string>>(new Set());
-  useEffect(()=>{loadRoadmap().then(value=>{setRoadmap(value);setEnrolled(new Set(value?.recommendations.filter(x=>x.is_enrolled).map(x=>x.course_id)||[]));}).catch(e=>setError(e.message));},[]);
-  const generate=async()=>{setGenerating(true);setError("");try{setRoadmap(await generateRoadmap());}catch(e){setError(e instanceof Error?e.message:"Generation failed");}finally{setGenerating(false);}};
-  const enroll=async(id:string)=>{if(!roadmap)return;setError("");try{await enrollCourse(id,roadmap.id);setEnrolled(x=>new Set(x).add(id));onEnroll();}catch(e){setError(e instanceof Error?e.message:"Enrollment failed");}};
-  if(!roadmap)return <div className="space-y-6"><div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>Generate your learning roadmap</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Groq will create a structured path from your skills, goal and optional resume.</p></div><Notice error={error}/><div className="py-14 flex flex-col items-center text-center bg-gradient-to-br from-[#F4F7FC] to-[#EBF1FA] rounded-2xl border border-[--border]"><div className="w-16 h-16 rounded-2xl bg-[#1B3A6B] flex items-center justify-center shadow-lg"><Brain size={28} className="text-white"/></div><h3 className="mt-5 text-[18px] font-semibold text-[#0F1C3F]">Your personalized path is ready to be planned</h3><div className="flex gap-4 mt-4 text-[12px]"><span className={readiness.skills?"text-emerald-600":"text-red-500"}>{readiness.skills?"✓":"○"} Skills added</span><span className={readiness.goal?"text-emerald-600":"text-red-500"}>{readiness.goal?"✓":"○"} Goal defined</span><span className="text-[#5A6A8A]">Resume optional</span></div><button onClick={generate} disabled={generating||!readiness.skills||!readiness.goal} className="mt-7 flex items-center gap-2 px-6 py-3 bg-[#D97706] text-white rounded-xl text-[13.5px] font-semibold disabled:opacity-40">{generating?<RefreshCw size={16} className="animate-spin"/>:<Sparkles size={16}/>} {generating?"Generating roadmap…":"Generate My Roadmap"}</button></div></div>;
-  return <div className="space-y-7"><Notice error={error}/><div className="p-6 rounded-2xl bg-[#1B3A6B] text-white"><div className="flex justify-between gap-4"><div><p className="text-[10px] uppercase tracking-widest text-white/50">AI Career Roadmap · Version {roadmap.version}</p><h2 className="text-[22px] mt-2" style={{fontFamily:"var(--font-serif)"}}>{roadmap.title}</h2><p className="text-[12.5px] text-white/65 mt-2 max-w-2xl">{roadmap.summary}</p></div><div className="shrink-0 flex items-center gap-2 text-[12px] bg-white/10 px-3 py-2 rounded-xl h-fit"><Clock size={14}/>{roadmap.duration_weeks} weeks</div></div></div>
-    <div><h3 className="text-[14px] font-semibold text-[#0F1C3F] mb-3">Priority skill gaps</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-3">{roadmap.skill_gaps.map(g=><div key={g.skill} className="p-4 border border-[--border] rounded-xl"><span className={`text-[10px] uppercase font-bold ${g.priority==="high"?"text-red-500":"text-amber-600"}`}>{g.priority}</span><p className="text-[13.5px] font-semibold mt-1">{g.skill}</p><p className="text-[11.5px] text-[#5A6A8A] mt-1">{g.reason}</p></div>)}</div></div>
-    <div className="space-y-4">{roadmap.phases.map(p=><div key={p.sequence} className="p-5 border border-[--border] rounded-2xl"><div className="flex gap-4"><div className="w-9 h-9 rounded-xl bg-[#1B3A6B] text-white flex items-center justify-center text-[12px] font-bold">{p.sequence}</div><div className="flex-1"><div className="flex justify-between"><h3 className="text-[15px] font-semibold">{p.title}</h3><span className="text-[11.5px] text-[#5A6A8A]">{p.duration_weeks} weeks</span></div><p className="text-[12px] text-[#5A6A8A] mt-1">{p.objective}</p><div className="flex flex-wrap gap-1.5 mt-3">{p.skills.map(x=><span key={x} className="px-2.5 py-1 bg-[#EBF1FA] text-[#1B3A6B] rounded-full text-[10.5px]">{x}</span>)}</div><ul className="mt-3 space-y-1">{p.milestones.map(x=><li key={x} className="text-[11.5px] text-[#5A6A8A] flex gap-2"><Check size={11} className="text-emerald-600 mt-0.5"/>{x}</li>)}</ul></div></div></div>)}</div>
-    <div><h3 className="text-[16px] text-[#0F1C3F] mb-3" style={{fontFamily:"var(--font-serif)"}}>Recommended courses</h3><div className="grid grid-cols-1 md:grid-cols-2 gap-4">{roadmap.recommendations.map(c=><div key={c.course_id} className="p-5 border border-[--border] rounded-2xl bg-white"><div className="flex justify-between"><div className="w-10 h-10 rounded-xl bg-[#EBF1FA] flex items-center justify-center"><BookOpen size={17} className="text-[#1B3A6B]"/></div><span className="text-[11px] font-bold text-emerald-600">{c.match_score}% match</span></div><h4 className="text-[14px] font-semibold mt-3">{c.title}</h4><p className="text-[11.5px] text-[#5A6A8A] mt-1 line-clamp-2">{c.reason}</p><div className="flex items-center gap-3 mt-3 text-[10.5px] text-[#9AA5BE]"><span>{c.level}</span><span>{c.duration_hours}h</span></div>{enrolled.has(c.course_id)?<button onClick={()=>onOpenLMS(c.course_id)} className="w-full mt-4 py-2.5 bg-emerald-600 text-white rounded-[10px] text-[12.5px] font-semibold flex items-center justify-center gap-1.5"><ExternalLink size={13}/>Continue in LMS</button>:<button onClick={()=>enroll(c.course_id)} className="w-full mt-4 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[12.5px] font-semibold">Enroll in Course</button>}</div>)}</div></div>
-  </div>;
+function RoadmapView({
+  readiness,
+  onEnroll,
+  onOpenLMS,
+}: {
+  readiness: { skills: boolean; goal: boolean };
+  onEnroll: () => void;
+  onOpenLMS: (courseId?: string) => void;
+}) {
+  const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+  const [enrolled, setEnrolled] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    loadRoadmap()
+      .then((value) => {
+        setRoadmap(value);
+        setEnrolled(
+          new Set(
+            value?.recommendations
+              .filter((x) => x.is_enrolled)
+              .map((x) => x.course_id) || [],
+          ),
+        );
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+  const generate = async () => {
+    setGenerating(true);
+    setError("");
+    try {
+      setRoadmap(await generateRoadmap());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
+  const enroll = async (id: string) => {
+    if (!roadmap) return;
+    setError("");
+    try {
+      await enrollCourse(id, roadmap.id);
+      setEnrolled((x) => new Set(x).add(id));
+      onEnroll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Enrollment failed");
+    }
+  };
+  if (!roadmap)
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2
+            className="text-[21px] text-[#0F1C3F]"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
+            Generate your learning roadmap
+          </h2>
+          <p className="text-[13px] text-[#5A6A8A] mt-1">
+            Groq will create a structured path from your skills, goal and
+            optional resume.
+          </p>
+        </div>
+        <Notice error={error} />
+        <div className="py-14 flex flex-col items-center text-center bg-gradient-to-br from-[#F4F7FC] to-[#EBF1FA] rounded-2xl border border-[--border]">
+          <div className="w-16 h-16 rounded-2xl bg-[#1B3A6B] flex items-center justify-center shadow-lg">
+            <Brain size={28} className="text-white" />
+          </div>
+          <h3 className="mt-5 text-[18px] font-semibold text-[#0F1C3F]">
+            Your personalized path is ready to be planned
+          </h3>
+          <div className="flex gap-4 mt-4 text-[12px]">
+            <span
+              className={readiness.skills ? "text-emerald-600" : "text-red-500"}
+            >
+              {readiness.skills ? "✓" : "○"} Skills added
+            </span>
+            <span
+              className={readiness.goal ? "text-emerald-600" : "text-red-500"}
+            >
+              {readiness.goal ? "✓" : "○"} Goal defined
+            </span>
+            <span className="text-[#5A6A8A]">Resume optional</span>
+          </div>
+          <button
+            onClick={generate}
+            disabled={generating || !readiness.skills || !readiness.goal}
+            className="mt-7 flex items-center gap-2 px-6 py-3 bg-[#D97706] text-white rounded-xl text-[13.5px] font-semibold disabled:opacity-40"
+          >
+            {generating ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : (
+              <Sparkles size={16} />
+            )}{" "}
+            {generating ? "Generating roadmap…" : "Generate My Roadmap"}
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="space-y-7">
+      <Notice error={error} />
+      <div className="p-6 rounded-2xl bg-[#1B3A6B] text-white">
+        <div className="flex justify-between gap-4">
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-white/50">
+              AI Career Roadmap · Version {roadmap.version}
+            </p>
+            <h2
+              className="text-[22px] mt-2"
+              style={{ fontFamily: "var(--font-serif)" }}
+            >
+              {roadmap.title}
+            </h2>
+            <p className="text-[12.5px] text-white/65 mt-2 max-w-2xl">
+              {roadmap.summary}
+            </p>
+          </div>
+          <div className="shrink-0 flex items-center gap-2 text-[12px] bg-white/10 px-3 py-2 rounded-xl h-fit">
+            <Clock size={14} />
+            {roadmap.duration_weeks} weeks
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 className="text-[14px] font-semibold text-[#0F1C3F] mb-3">
+          Priority skill gaps
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {roadmap.skill_gaps.map((g) => (
+            <div
+              key={g.skill}
+              className="p-4 border border-[--border] rounded-xl"
+            >
+              <span
+                className={`text-[10px] uppercase font-bold ${g.priority === "high" ? "text-red-500" : "text-amber-600"}`}
+              >
+                {g.priority}
+              </span>
+              <p className="text-[13.5px] font-semibold mt-1">{g.skill}</p>
+              <p className="text-[11.5px] text-[#5A6A8A] mt-1">{g.reason}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-4">
+        {roadmap.phases.map((p) => (
+          <div
+            key={p.sequence}
+            className="p-5 border border-[--border] rounded-2xl"
+          >
+            <div className="flex gap-4">
+              <div className="w-9 h-9 rounded-xl bg-[#1B3A6B] text-white flex items-center justify-center text-[12px] font-bold">
+                {p.sequence}
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between">
+                  <h3 className="text-[15px] font-semibold">{p.title}</h3>
+                  <span className="text-[11.5px] text-[#5A6A8A]">
+                    {p.duration_weeks} weeks
+                  </span>
+                </div>
+                <p className="text-[12px] text-[#5A6A8A] mt-1">{p.objective}</p>
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {p.skills.map((x) => (
+                    <span
+                      key={x}
+                      className="px-2.5 py-1 bg-[#EBF1FA] text-[#1B3A6B] rounded-full text-[10.5px]"
+                    >
+                      {x}
+                    </span>
+                  ))}
+                </div>
+                <ul className="mt-3 space-y-1">
+                  {p.milestones.map((x) => (
+                    <li
+                      key={x}
+                      className="text-[11.5px] text-[#5A6A8A] flex gap-2"
+                    >
+                      <Check size={11} className="text-emerald-600 mt-0.5" />
+                      {x}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div>
+        <h3
+          className="text-[16px] text-[#0F1C3F] mb-3"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          Recommended courses
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {roadmap.recommendations.map((c) => (
+            <div
+              key={c.course_id}
+              className="p-5 border border-[--border] rounded-2xl bg-white"
+            >
+              <div className="flex justify-between">
+                <div className="w-10 h-10 rounded-xl bg-[#EBF1FA] flex items-center justify-center">
+                  <BookOpen size={17} className="text-[#1B3A6B]" />
+                </div>
+                <span className="text-[11px] font-bold text-emerald-600">
+                  {c.match_score}% match
+                </span>
+              </div>
+              <h4 className="text-[14px] font-semibold mt-3">{c.title}</h4>
+              <p className="text-[11.5px] text-[#5A6A8A] mt-1 line-clamp-2">
+                {c.reason}
+              </p>
+              <div className="flex items-center gap-3 mt-3 text-[10.5px] text-[#9AA5BE]">
+                <span>{c.level}</span>
+                <span>{c.duration_hours}h</span>
+              </div>
+              {enrolled.has(c.course_id) ? (
+                <button
+                  onClick={() => onOpenLMS(c.course_id)}
+                  className="w-full mt-4 py-2.5 bg-emerald-600 text-white rounded-[10px] text-[12.5px] font-semibold flex items-center justify-center gap-1.5"
+                >
+                  <ExternalLink size={13} />
+                  Continue in LMS
+                </button>
+              ) : (
+                <button
+                  onClick={() => enroll(c.course_id)}
+                  className="w-full mt-4 py-2.5 bg-[#1B3A6B] text-white rounded-[10px] text-[12.5px] font-semibold"
+                >
+                  Enroll in Course
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function DashboardView({onOpenLMS}:{onOpenLMS:(courseId?:string)=>void}){
-  const [data,setData]=useState<Awaited<ReturnType<typeof loadStudentDashboard>>|null>(null);
-  const [error,setError]=useState("");
-  useEffect(()=>{loadStudentDashboard().then(setData).catch(e=>setError(e.message));},[]);
-  if(error)return <Notice error={error}/>;
-  if(!data)return <div className="py-16 flex items-center justify-center gap-2 text-[13px] text-[#5A6A8A]"><RefreshCw size={15} className="animate-spin"/>Loading your progress…</div>;
-  const s=data.summary;
-  const cards=[{label:"Overall progress",value:`${s.overall_progress_percentage}%`,icon:Activity},{label:"Learning time",value:`${s.learning_minutes} min`,icon:Clock},{label:"Learning streak",value:`${s.learning_streak_days} days`,icon:Flame},{label:"Quiz average",value:`${s.quiz_average_percentage}%`,icon:Award}];
-  const max=Math.max(1,...data.weekly_activity.map(x=>x.minutes));
-  return <div className="space-y-5">
-    <div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>Your learning overview</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Track your progress, learning activity and next lesson in one place.</p></div>
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">{cards.map(c=><div key={c.label} className="p-4 bg-white border border-[--border] rounded-2xl shadow-sm"><div className="flex items-center justify-between"><span className="text-[11.5px] text-[#5A6A8A]">{c.label}</span><span className="w-8 h-8 rounded-lg bg-[#EBF1FA] flex items-center justify-center"><c.icon size={14} className="text-[#1B3A6B]"/></span></div><p className="text-[21px] font-bold text-[#0F1C3F] mt-2">{c.value}</p></div>)}</div>
-    <div className="grid xl:grid-cols-[1.5fr_1fr] gap-4"><div className="p-5 bg-white border border-[--border] rounded-2xl shadow-sm"><div><h3 className="text-[14px] font-semibold text-[#0F1C3F]">Weekly activity</h3><p className="text-[11px] text-[#9AA5BE] mt-0.5">Minutes learned in the last 7 days</p></div><div className="h-44 flex items-end gap-2 sm:gap-3 mt-5">{data.weekly_activity.map(day=><div key={day.date} className="flex-1 text-center"><div className="h-32 flex items-end bg-[#F4F7FC] rounded-lg overflow-hidden"><div className="w-full bg-[#1B3A6B] rounded-t-lg min-h-[4px]" style={{height:`${Math.max(4,day.minutes/max*100)}%`}} title={`${day.minutes} minutes`}/></div><p className="text-[9.5px] text-[#9AA5BE] mt-2">{new Date(day.date+"T00:00:00").toLocaleDateString(undefined,{weekday:"short"})}</p></div>)}</div></div><div className="p-5 rounded-2xl bg-[#1B3A6B] text-white shadow-sm flex flex-col"><p className="text-[10px] uppercase tracking-widest text-white/50">Next action</p>{data.next_action?<><div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center mt-5"><BookOpen size={17}/></div><h3 className="text-[17px] font-semibold mt-3">{data.next_action.title}</h3><p className="text-[11.5px] text-white/60 mt-1">{data.next_action.course_title}</p><button onClick={()=>onOpenLMS(data.next_action!.course_id)} className="w-full mt-auto pt-2 py-2.5 bg-white text-[#1B3A6B] rounded-xl text-[12px] font-semibold hover:bg-[#F4F7FC]">Continue Learning</button></>:<p className="text-[13px] text-white/70 mt-5">Enroll in a course to begin your learning journey.</p>}</div></div>
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">{[{value:`${s.completed_lessons}/${s.total_lessons}`,label:"Lessons completed"},{value:s.enrolled_courses,label:"Courses enrolled"},{value:s.pending_assignments,label:"Pending evaluations"}].map(item=><div key={item.label} className="p-4 bg-[#F8FAFD] border border-[--border] rounded-xl flex sm:block items-center justify-between sm:text-center"><p className="text-[20px] font-bold text-[#1B3A6B]">{item.value}</p><p className="text-[10.5px] text-[#5A6A8A]">{item.label}</p></div>)}</div>
-  </div>
+function DashboardView({
+  onOpenLMS,
+}: {
+  onOpenLMS: (courseId?: string) => void;
+}) {
+  const [data, setData] = useState<Awaited<
+    ReturnType<typeof loadStudentDashboard>
+  > | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    loadStudentDashboard()
+      .then(setData)
+      .catch((e) => setError(e.message));
+  }, []);
+  if (error) return <Notice error={error} />;
+  if (!data)
+    return (
+      <div className="py-16 flex items-center justify-center gap-2 text-[13px] text-[#5A6A8A]">
+        <RefreshCw size={15} className="animate-spin" />
+        Loading your progress…
+      </div>
+    );
+  const s = data.summary;
+  const cards = [
+    {
+      label: "Overall progress",
+      value: `${s.overall_progress_percentage}%`,
+      icon: Activity,
+    },
+    { label: "Learning time", value: `${s.learning_minutes} min`, icon: Clock },
+    {
+      label: "Learning streak",
+      value: `${s.learning_streak_days} days`,
+      icon: Flame,
+    },
+    {
+      label: "Quiz average",
+      value: `${s.quiz_average_percentage}%`,
+      icon: Award,
+    },
+  ];
+  const max = Math.max(1, ...data.weekly_activity.map((x) => x.minutes));
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2
+          className="text-[21px] text-[#0F1C3F]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          Your learning overview
+        </h2>
+        <p className="text-[13px] text-[#5A6A8A] mt-1">
+          Track your progress, learning activity and next lesson in one place.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {cards.map((c) => (
+          <div
+            key={c.label}
+            className="p-4 bg-white border border-[--border] rounded-2xl shadow-sm"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11.5px] text-[#5A6A8A]">{c.label}</span>
+              <span className="w-8 h-8 rounded-lg bg-[#EBF1FA] flex items-center justify-center">
+                <c.icon size={14} className="text-[#1B3A6B]" />
+              </span>
+            </div>
+            <p className="text-[21px] font-bold text-[#0F1C3F] mt-2">
+              {c.value}
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="grid xl:grid-cols-[1.5fr_1fr] gap-4">
+        <div className="p-5 bg-white border border-[--border] rounded-2xl shadow-sm">
+          <div>
+            <h3 className="text-[14px] font-semibold text-[#0F1C3F]">
+              Weekly activity
+            </h3>
+            <p className="text-[11px] text-[#9AA5BE] mt-0.5">
+              Minutes learned in the last 7 days
+            </p>
+          </div>
+          <div className="h-44 flex items-end gap-2 sm:gap-3 mt-5">
+            {data.weekly_activity.map((day) => (
+              <div key={day.date} className="flex-1 text-center">
+                <div className="h-32 flex items-end bg-[#F4F7FC] rounded-lg overflow-hidden">
+                  <div
+                    className="w-full bg-[#1B3A6B] rounded-t-lg min-h-[4px]"
+                    style={{
+                      height: `${Math.max(4, (day.minutes / max) * 100)}%`,
+                    }}
+                    title={`${day.minutes} minutes`}
+                  />
+                </div>
+                <p className="text-[9.5px] text-[#9AA5BE] mt-2">
+                  {new Date(day.date + "T00:00:00").toLocaleDateString(
+                    undefined,
+                    { weekday: "short" },
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-5 rounded-2xl bg-[#1B3A6B] text-white shadow-sm flex flex-col">
+          <p className="text-[10px] uppercase tracking-widest text-white/50">
+            Next action
+          </p>
+          {data.next_action ? (
+            <>
+              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center mt-5">
+                <BookOpen size={17} />
+              </div>
+              <h3 className="text-[17px] font-semibold mt-3">
+                {data.next_action.title}
+              </h3>
+              <p className="text-[11.5px] text-white/60 mt-1">
+                {data.next_action.course_title}
+              </p>
+              <button
+                onClick={() => onOpenLMS(data.next_action!.course_id)}
+                className="w-full mt-auto pt-2 py-2.5 bg-white text-[#1B3A6B] rounded-xl text-[12px] font-semibold hover:bg-[#F4F7FC]"
+              >
+                Continue Learning
+              </button>
+            </>
+          ) : (
+            <p className="text-[13px] text-white/70 mt-5">
+              Enroll in a course to begin your learning journey.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          {
+            value: `${s.completed_lessons}/${s.total_lessons}`,
+            label: "Lessons completed",
+          },
+          { value: s.enrolled_courses, label: "Courses enrolled" },
+          { value: s.pending_assignments, label: "Pending evaluations" },
+        ].map((item) => (
+          <div
+            key={item.label}
+            className="p-4 bg-[#F8FAFD] border border-[--border] rounded-xl flex sm:block items-center justify-between sm:text-center"
+          >
+            <p className="text-[20px] font-bold text-[#1B3A6B]">{item.value}</p>
+            <p className="text-[10.5px] text-[#5A6A8A]">{item.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function CertificatesView(){
-  const [certificates,setCertificates]=useState<Awaited<ReturnType<typeof loadCertificates>>>([]);
-  const [eligible,setEligible]=useState<Enrollment[]>([]);
-  const [busy,setBusy]=useState(""); const [error,setError]=useState(""); const [message,setMessage]=useState("");
-  const load=async()=>{const [issued,enrollments]=await Promise.all([loadCertificates(),loadEnrollments()]);setCertificates(issued);setEligible(enrollments.filter(item=>item.status==="completed"&&item.progress_percentage===100&&!issued.some(c=>c.enrollment_id===item.id&&c.status==="issued")));};
-  useEffect(()=>{load().catch(e=>setError(e.message));},[]);
-  const generate=async(enrollmentId:string)=>{setBusy(enrollmentId);setError("");try{await generateCertificate(enrollmentId);setMessage("Certificate generated successfully.");await load();}catch(e){setError(e instanceof Error?e.message:"Unable to generate certificate");}finally{setBusy("");}};
-  return <div className="space-y-5"><div><h2 className="text-[21px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>My certificates</h2><p className="text-[13px] text-[#5A6A8A] mt-1">Download and share verified certificates for completed courses.</p></div><Notice error={error} success={message}/>{eligible.map(course=><div key={course.id} className="p-5 bg-[#EBF1FA] border border-[rgba(27,58,107,0.12)] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div className="flex items-center gap-3"><span className="w-11 h-11 bg-[#1B3A6B] text-white rounded-xl flex items-center justify-center"><Award size={19}/></span><div><p className="text-[13.5px] font-semibold text-[#0F1C3F]">{course.title}</p><p className="text-[11.5px] text-[#5A6A8A]">Course completed · Certificate ready</p></div></div><button disabled={busy===course.id} onClick={()=>generate(course.id)} className="px-4 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12px] font-semibold disabled:opacity-50">{busy===course.id?"Generating…":"Generate Certificate"}</button></div>)}{certificates.length?<div className="grid grid-cols-1 md:grid-cols-2 gap-4">{certificates.map(item=><div key={item.id} className="p-5 bg-white border border-[--border] rounded-2xl shadow-sm"><div className="flex justify-between gap-3"><span className="w-11 h-11 rounded-xl bg-[#EBF1FA] flex items-center justify-center"><ShieldCheck size={19} className="text-[#1B3A6B]"/></span><span className={`h-fit px-2.5 py-1 rounded-full text-[10px] font-semibold capitalize ${item.status==="issued"?"bg-emerald-50 text-emerald-700":"bg-red-50 text-red-700"}`}>{item.status}</span></div><h3 className="text-[15px] font-semibold text-[#0F1C3F] mt-4">{item.course_title}</h3><p className="text-[10.5px] text-[#9AA5BE] mt-1">{item.certificate_number}</p><p className="text-[11px] text-[#5A6A8A] mt-3">Issued {new Date(item.issued_at).toLocaleDateString()}</p>{item.status==="issued"?<button onClick={()=>studentDownload(`/api/v1/students/me/certificates/${item.id}/download`,`${item.certificate_number}.pdf`).catch(e=>setError(e.message))} className="w-full mt-4 py-2.5 border border-[rgba(27,58,107,0.16)] text-[#1B3A6B] rounded-xl text-[12px] font-semibold flex items-center justify-center gap-2"><Download size={14}/>Download PDF</button>:<p className="mt-4 p-3 bg-red-50 text-red-700 rounded-xl text-[11px]">{item.revocation_reason||"This certificate is no longer valid."}</p>}</div>)}</div>:!eligible.length?<div className="py-14 text-center border-2 border-dashed border-slate-200 rounded-2xl"><ShieldCheck size={28} className="mx-auto text-[#9AA5BE]"/><p className="mt-3 text-[13px] text-[#5A6A8A]">Complete a course to unlock your first certificate.</p></div>:null}</div>;
+function CertificatesView() {
+  const [certificates, setCertificates] = useState<
+    Awaited<ReturnType<typeof loadCertificates>>
+  >([]);
+  const [eligible, setEligible] = useState<Enrollment[]>([]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const load = async () => {
+    const [issued, enrollments] = await Promise.all([
+      loadCertificates(),
+      loadEnrollments(),
+    ]);
+    setCertificates(issued);
+    setEligible(
+      enrollments.filter(
+        (item) =>
+          item.status === "completed" &&
+          item.progress_percentage === 100 &&
+          !issued.some(
+            (c) => c.enrollment_id === item.id && c.status === "issued",
+          ),
+      ),
+    );
+  };
+  useEffect(() => {
+    load().catch((e) => setError(e.message));
+  }, []);
+  const generate = async (enrollmentId: string) => {
+    setBusy(enrollmentId);
+    setError("");
+    try {
+      await generateCertificate(enrollmentId);
+      setMessage("Certificate generated successfully.");
+      await load();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Unable to generate certificate",
+      );
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2
+          className="text-[21px] text-[#0F1C3F]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          My certificates
+        </h2>
+        <p className="text-[13px] text-[#5A6A8A] mt-1">
+          Download and share verified certificates for completed courses.
+        </p>
+      </div>
+      <Notice error={error} success={message} />
+      {eligible.map((course) => (
+        <div
+          key={course.id}
+          className="p-5 bg-[#EBF1FA] border border-[rgba(27,58,107,0.12)] rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-3">
+            <span className="w-11 h-11 bg-[#1B3A6B] text-white rounded-xl flex items-center justify-center">
+              <Award size={19} />
+            </span>
+            <div>
+              <p className="text-[13.5px] font-semibold text-[#0F1C3F]">
+                {course.title}
+              </p>
+              <p className="text-[11.5px] text-[#5A6A8A]">
+                Course completed · Certificate ready
+              </p>
+            </div>
+          </div>
+          <button
+            disabled={busy === course.id}
+            onClick={() => generate(course.id)}
+            className="px-4 py-2.5 bg-[#1B3A6B] text-white rounded-xl text-[12px] font-semibold disabled:opacity-50"
+          >
+            {busy === course.id ? "Generating…" : "Generate Certificate"}
+          </button>
+        </div>
+      ))}
+      {certificates.length ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {certificates.map((item) => (
+            <div
+              key={item.id}
+              className="p-5 bg-white border border-[--border] rounded-2xl shadow-sm"
+            >
+              <div className="flex justify-between gap-3">
+                <span className="w-11 h-11 rounded-xl bg-[#EBF1FA] flex items-center justify-center">
+                  <ShieldCheck size={19} className="text-[#1B3A6B]" />
+                </span>
+                <span
+                  className={`h-fit px-2.5 py-1 rounded-full text-[10px] font-semibold capitalize ${item.status === "issued" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
+                >
+                  {item.status}
+                </span>
+              </div>
+              <h3 className="text-[15px] font-semibold text-[#0F1C3F] mt-4">
+                {item.course_title}
+              </h3>
+              <p className="text-[10.5px] text-[#9AA5BE] mt-1">
+                {item.certificate_number}
+              </p>
+              <p className="text-[11px] text-[#5A6A8A] mt-3">
+                Issued {new Date(item.issued_at).toLocaleDateString()}
+              </p>
+              {item.status === "issued" ? (
+                <button
+                  onClick={() =>
+                    studentDownload(
+                      `/api/v1/students/me/certificates/${item.id}/download`,
+                      `${item.certificate_number}.pdf`,
+                    ).catch((e) => setError(e.message))
+                  }
+                  className="w-full mt-4 py-2.5 border border-[rgba(27,58,107,0.16)] text-[#1B3A6B] rounded-xl text-[12px] font-semibold flex items-center justify-center gap-2"
+                >
+                  <Download size={14} />
+                  Download PDF
+                </button>
+              ) : (
+                <p className="mt-4 p-3 bg-red-50 text-red-700 rounded-xl text-[11px]">
+                  {item.revocation_reason ||
+                    "This certificate is no longer valid."}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : !eligible.length ? (
+        <div className="py-14 text-center border-2 border-dashed border-slate-200 rounded-2xl">
+          <ShieldCheck size={28} className="mx-auto text-[#9AA5BE]" />
+          <p className="mt-3 text-[13px] text-[#5A6A8A]">
+            Complete a course to unlock your first certificate.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
-export function StudentCareerPortal({ onLogout, onOpenLMS }: { onLogout:()=>void; onOpenLMS:(courseId?:string)=>void }) {
-  const [section,setSection]=useState<Section>(()=>sectionFromPath(window.location.pathname));const [student,setStudent]=useState<CurrentStudent|null>(null);const [ready,setReady]=useState({skills:false,goal:false,resume:false});const [profileOpen,setProfileOpen]=useState(false);const profileRef=useRef<HTMLDivElement>(null);
-  useEffect(()=>{getCurrentStudent().then(setStudent).catch(e=>toast.error(e.message));Promise.all([loadSkills(),loadGoal(),loadResume()]).then(([s,g,r])=>setReady({skills:s.length>0,goal:Boolean(g),resume:Boolean(r)})).catch(e=>toast.error(e.message));},[]);
-  useEffect(()=>{const close=(event:MouseEvent)=>{if(profileRef.current&&!profileRef.current.contains(event.target as Node))setProfileOpen(false);};document.addEventListener("mousedown",close);return()=>document.removeEventListener("mousedown",close);},[]);
-  useEffect(()=>{if(window.location.pathname==="/student"||window.location.pathname==="/student/")window.history.replaceState({},"",SECTION_PATH.dashboard);const restore=()=>setSection(sectionFromPath(window.location.pathname));window.addEventListener("popstate",restore);return()=>window.removeEventListener("popstate",restore);},[]);
-  useEffect(()=>{document.title=`${NAV.find(item=>item.key===section)?.label||"Student Portal"} | EduConnect`;},[section]);
-  const navigateSection=(next:Section)=>{if(window.location.pathname!==SECTION_PATH[next])window.history.pushState({},"",SECTION_PATH[next]);setSection(next);window.scrollTo({top:0,behavior:"smooth"});};
-  const active=NAV.find(x=>x.key===section)!;
-  return <div className="min-h-screen bg-[#F2F5FC]" style={{fontFamily:"var(--font-sans)"}}><Toaster position="top-right" richColors closeButton expand={false}/><header className="bg-[#1B3A6B] border-b border-white/10 sticky top-0 z-50"><div className="w-full px-4 sm:px-6 py-3.5 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-[9px] bg-white/10 flex items-center justify-center"><GraduationCap size={17} className="text-white"/></div><div><p className="text-white font-semibold text-[14px] leading-none">EduConnect</p><p className="text-white/45 text-[10.5px] mt-0.5">Student Career Portal</p></div></div><div className="flex items-center gap-3"><button onClick={()=>onOpenLMS()} className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 text-white rounded-xl text-[12px] font-semibold"><ExternalLink size={13}/>Go to LMS</button><div ref={profileRef} className="relative"><button aria-expanded={profileOpen} onClick={()=>setProfileOpen(value=>!value)} className="flex items-center gap-2.5 p-1.5 pr-2.5 rounded-xl hover:bg-white/10 text-left"><span className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-white"><UserRound size={15}/></span><span className="hidden sm:block"><span className="block text-[11.5px] font-semibold text-white max-w-36 truncate">{student?.full_name||"Student"}</span><span className="block text-[9.5px] text-white/50 max-w-36 truncate">{student?.email||"Student account"}</span></span><ChevronDown size={13} className={`text-white/60 transition-transform ${profileOpen?"rotate-180":""}`}/></button>{profileOpen&&<div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"><div className="px-3 py-3 border-b border-slate-100"><p className="text-[12.5px] font-semibold text-[#0F1C3F] truncate">{student?.full_name||"Student"}</p><p className="text-[10.5px] text-[#5A6A8A] truncate mt-0.5">{student?.email}</p><p className="text-[10px] text-[#9AA5BE] mt-1">{student?.program_name}</p></div><button onClick={()=>onOpenLMS()} className="w-full flex sm:hidden mt-1 items-center gap-2.5 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-[#1B3A6B] hover:bg-[#EBF1FA]"><ExternalLink size={14}/>Go to LMS</button><button onClick={onLogout} className="w-full mt-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-red-600 hover:bg-red-50"><LogOut size={14}/>Sign out</button></div>}</div></div></div></header>
-    <div className="w-full px-3 sm:px-6 py-4 sm:py-6"><div className="lg:hidden mb-3 relative"><Menu size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#1B3A6B] pointer-events-none"/><select aria-label="Student portal section" value={section} onChange={e=>navigateSection(e.target.value as Section)} className="w-full appearance-none pl-10 pr-10 py-3 bg-white border border-[--border] rounded-xl text-[13px] font-semibold text-[#0F1C3F] shadow-sm">{NAV.map(item=><option key={item.key} value={item.key}>{item.label} — {item.desc}</option>)}</select><ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"/></div><div className="grid gap-5 lg:grid-cols-[252px_minmax(0,1fr)]"><aside className="hidden lg:block sticky top-[76px] self-start"><div className="bg-white rounded-2xl border border-[--border] overflow-hidden shadow-sm"><div className="p-5 bg-[#1B3A6B]"><p className="text-[10px] uppercase tracking-widest text-white/50">Career setup</p><p className="text-white text-[13px] font-semibold mt-2">{[ready.skills,ready.goal].filter(Boolean).length}/2 essentials ready</p><div className="h-1.5 bg-white/20 rounded-full mt-3"><div className="h-full bg-white rounded-full" style={{width:`${[ready.skills,ready.goal].filter(Boolean).length*50}%`}}/></div></div><nav className="p-2.5">{NAV.map(item=>{const Icon=item.icon;const selected=section===item.key;const complete=item.key==="skills"?ready.skills:item.key==="goal"?ready.goal:item.key==="resume"?ready.resume:false;return <button key={item.key} onClick={()=>navigateSection(item.key)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left mb-1 transition-all ${selected?"bg-[#EBF1FA]":"hover:bg-[#F4F7FC]"}`}><div className={`w-8 h-8 rounded-lg flex items-center justify-center ${selected?"bg-[#1B3A6B]":"bg-[#EFF2FA]"}`}><Icon size={14} className={selected?"text-white":"text-[#5A6A8A]"}/></div><div className="flex-1"><p className={`text-[12px] font-semibold ${selected?"text-[#1B3A6B]":"text-[#0F1C3F]"}`}>{item.label}</p><p className="text-[10.5px] text-[#9AA5BE]">{item.desc}</p></div>{complete?<Check size={13} className="text-emerald-600"/>:selected?<ChevronRight size={13} className="text-[#1B3A6B]"/>:null}</button>})}<button onClick={()=>onOpenLMS()} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left mt-2 border-t border-[--border] pt-4"><div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center"><ExternalLink size={14} className="text-emerald-600"/></div><div className="flex-1"><p className="text-[12px] font-semibold text-emerald-700">Go to LMS</p><p className="text-[10.5px] text-[#9AA5BE]">Access & learn your courses</p></div></button></nav></div></aside>
-      <main className="min-w-0 bg-white rounded-2xl border border-[--border] shadow-sm overflow-hidden"><div className="px-4 sm:px-8 py-4 sm:py-5 border-b border-[--border] flex items-center gap-4"><div className="w-11 h-11 rounded-xl bg-[#1B3A6B] flex items-center justify-center"><active.icon size={19} className="text-white"/></div><div><h1 className="text-[19px] text-[#0F1C3F]" style={{fontFamily:"var(--font-serif)"}}>{active.label}</h1><p className="text-[12.5px] text-[#5A6A8A]">{active.desc}</p></div>{(section==="roadmap"||section==="ats-resume")&&<span className="ml-auto flex items-center gap-1 text-[10.5px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full"><Sparkles size={10}/>AI-powered</span>}</div><div className="px-4 sm:px-8 py-5 sm:py-7">{section==="dashboard"?<DashboardView onOpenLMS={onOpenLMS}/>:section==="skills"?<SkillsView onReady={()=>setReady(x=>({...x,skills:true}))}/>:section==="goal"?<GoalView onReady={()=>setReady(x=>({...x,goal:true}))}/>:section==="resume"?<ResumeView onReady={()=>setReady(x=>({...x,resume:true}))}/>:section==="ats-resume"?<AtsResumeBuilder/>:section==="roadmap"?<RoadmapView readiness={ready} onEnroll={()=>undefined} onOpenLMS={onOpenLMS}/>:<CertificatesView/>}</div></main></div></div></div>;
+export function StudentCareerPortal({
+  onLogout,
+  onOpenLMS,
+}: {
+  onLogout: () => void;
+  onOpenLMS: (courseId?: string) => void;
+}) {
+  const [section, setSection] = useState<Section>(() =>
+    sectionFromPath(window.location.pathname),
+  );
+  const [student, setStudent] = useState<CurrentStudent | null>(null);
+  const [ready, setReady] = useState({
+    skills: false,
+    goal: false,
+    resume: false,
+  });
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    getCurrentStudent()
+      .then(setStudent)
+      .catch((e) => toast.error(e.message));
+    Promise.all([loadSkills(), loadGoal(), loadResume()])
+      .then(([s, g, r]) =>
+        setReady({
+          skills: s.length > 0,
+          goal: Boolean(g),
+          resume: Boolean(r),
+        }),
+      )
+      .catch((e) => toast.error(e.message));
+  }, []);
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (
+        profileRef.current &&
+        !profileRef.current.contains(event.target as Node)
+      )
+        setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+  useEffect(() => {
+    if (
+      window.location.pathname === "/student" ||
+      window.location.pathname === "/student/"
+    )
+      window.history.replaceState({}, "", SECTION_PATH.dashboard);
+    const restore = () => setSection(sectionFromPath(window.location.pathname));
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  useEffect(() => {
+    document.title = `${NAV.find((item) => item.key === section)?.label || "Student Portal"} | EduConnect`;
+  }, [section]);
+  const navigateSection = (next: Section) => {
+    if (window.location.pathname !== SECTION_PATH[next])
+      window.history.pushState({}, "", SECTION_PATH[next]);
+    setSection(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const active = NAV.find((x) => x.key === section)!;
+  return (
+    <div
+      className="min-h-screen bg-[#F2F5FC]"
+      style={{ fontFamily: "var(--font-sans)" }}
+    >
+      <Toaster position="top-right" richColors closeButton expand={false} />
+      <header className="bg-[#1B3A6B] border-b border-white/10 sticky top-0 z-50">
+        <div className="w-full px-4 sm:px-6 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-[9px] bg-white/10 flex items-center justify-center">
+              <GraduationCap size={17} className="text-white" />
+            </div>
+            <div>
+              <p className="text-white font-semibold text-[14px] leading-none">
+                EduConnect
+              </p>
+              <p className="text-white/45 text-[10.5px] mt-0.5">
+                Student workspace
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => onOpenLMS()}
+              className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 text-white rounded-xl text-[12px] font-semibold"
+            >
+              <BookOpen size={14} />
+              My Learning
+            </button>
+            <div ref={profileRef} className="relative">
+              <button
+                aria-expanded={profileOpen}
+                onClick={() => setProfileOpen((value) => !value)}
+                className="flex items-center gap-2.5 p-1.5 pr-2.5 rounded-xl hover:bg-white/10 text-left"
+              >
+                <span className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-white">
+                  <UserRound size={15} />
+                </span>
+                <span className="hidden sm:block">
+                  <span className="block text-[11.5px] font-semibold text-white max-w-36 truncate">
+                    {student?.full_name || "Student"}
+                  </span>
+                  <span className="block text-[9.5px] text-white/50 max-w-36 truncate">
+                    {student?.email || "Student account"}
+                  </span>
+                </span>
+                <ChevronDown
+                  size={13}
+                  className={`text-white/60 transition-transform ${profileOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {profileOpen && (
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+                  <div className="px-3 py-3 border-b border-slate-100">
+                    <p className="text-[12.5px] font-semibold text-[#0F1C3F] truncate">
+                      {student?.full_name || "Student"}
+                    </p>
+                    <p className="text-[10.5px] text-[#5A6A8A] truncate mt-0.5">
+                      {student?.email}
+                    </p>
+                    <p className="text-[10px] text-[#9AA5BE] mt-1">
+                      {student?.program_name}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onOpenLMS()}
+                    className="w-full flex sm:hidden mt-1 items-center gap-2.5 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-[#1B3A6B] hover:bg-[#EBF1FA]"
+                  >
+                    <BookOpen size={14} />
+                    My Learning
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="w-full mt-1 flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-red-600 hover:bg-red-50"
+                  >
+                    <LogOut size={14} />
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+      <div className="w-full px-3 sm:px-6 py-4 sm:py-6">
+        <div className="lg:hidden mb-3 relative">
+          <Menu
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[#1B3A6B] pointer-events-none"
+          />
+          <select
+            aria-label="Student portal section"
+            value={section}
+            onChange={(e) => navigateSection(e.target.value as Section)}
+            className="w-full appearance-none pl-10 pr-10 py-3 bg-white border border-[--border] rounded-xl text-[13px] font-semibold text-[#0F1C3F] shadow-sm"
+          >
+            {NAV.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.label} — {item.desc}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            size={14}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A6A8A] pointer-events-none"
+          />
+        </div>
+        <div className="grid gap-5 lg:grid-cols-[252px_minmax(0,1fr)]">
+          <aside className="hidden lg:block sticky top-[76px] self-start">
+            <div className="bg-white rounded-2xl border border-[--border] overflow-hidden shadow-sm">
+              <div className="p-5 bg-[#1B3A6B]">
+                <p className="text-[10px] uppercase tracking-widest text-white/50">
+                  Career setup
+                </p>
+                <p className="text-white text-[13px] font-semibold mt-2">
+                  {[ready.skills, ready.goal].filter(Boolean).length}/2
+                  essentials ready
+                </p>
+                <div className="h-1.5 bg-white/20 rounded-full mt-3">
+                  <div
+                    className="h-full bg-white rounded-full"
+                    style={{
+                      width: `${[ready.skills, ready.goal].filter(Boolean).length * 50}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <nav className="p-2.5">
+                {NAV.map((item) => {
+                  const Icon = item.icon;
+                  const selected = section === item.key;
+                  const complete =
+                    item.key === "skills"
+                      ? ready.skills
+                      : item.key === "goal"
+                        ? ready.goal
+                        : item.key === "resume"
+                          ? ready.resume
+                          : false;
+                  return (
+                    <button
+                      key={item.key}
+                      onClick={() => navigateSection(item.key)}
+                      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left mb-1 transition-all ${selected ? "bg-[#EBF1FA]" : "hover:bg-[#F4F7FC]"}`}
+                    >
+                      <div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center ${selected ? "bg-[#1B3A6B]" : "bg-[#EFF2FA]"}`}
+                      >
+                        <Icon
+                          size={14}
+                          className={selected ? "text-white" : "text-[#5A6A8A]"}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p
+                          className={`text-[12px] font-semibold ${selected ? "text-[#1B3A6B]" : "text-[#0F1C3F]"}`}
+                        >
+                          {item.label}
+                        </p>
+                        <p className="text-[10.5px] text-[#9AA5BE]">
+                          {item.desc}
+                        </p>
+                      </div>
+                      {complete ? (
+                        <Check size={13} className="text-emerald-600" />
+                      ) : selected ? (
+                        <ChevronRight size={13} className="text-[#1B3A6B]" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => onOpenLMS()}
+                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left mt-2 border-t border-[--border] pt-4"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <ExternalLink size={14} className="text-emerald-600" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-[12px] font-semibold text-emerald-700">
+                      My Learning
+                    </p>
+                    <p className="text-[10.5px] text-[#9AA5BE]">
+                      Courses, assignments and progress
+                    </p>
+                  </div>
+                </button>
+              </nav>
+            </div>
+          </aside>
+          <main className="min-w-0 bg-white rounded-2xl border border-[--border] shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-8 py-4 sm:py-5 border-b border-[--border] flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl bg-[#1B3A6B] flex items-center justify-center">
+                <active.icon size={19} className="text-white" />
+              </div>
+              <div>
+                <h1
+                  className="text-[19px] text-[#0F1C3F]"
+                  style={{ fontFamily: "var(--font-serif)" }}
+                >
+                  {active.label}
+                </h1>
+                <p className="text-[12.5px] text-[#5A6A8A]">{active.desc}</p>
+              </div>
+              {(section === "roadmap" || section === "ats-resume") && (
+                <span className="ml-auto flex items-center gap-1 text-[10.5px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full">
+                  <Sparkles size={10} />
+                  AI-powered
+                </span>
+              )}
+            </div>
+            <div className="px-4 sm:px-8 py-5 sm:py-7">
+              {section === "dashboard" ? (
+                <DashboardView onOpenLMS={onOpenLMS} />
+              ) : section === "skills" ? (
+                <SkillsView
+                  onReady={() => setReady((x) => ({ ...x, skills: true }))}
+                />
+              ) : section === "goal" ? (
+                <GoalView
+                  onReady={() => setReady((x) => ({ ...x, goal: true }))}
+                />
+              ) : section === "resume" ? (
+                <ResumeView
+                  onReady={() => setReady((x) => ({ ...x, resume: true }))}
+                />
+              ) : section === "ats-resume" ? (
+                <AtsResumeBuilder />
+              ) : section === "roadmap" ? (
+                <RoadmapView
+                  readiness={ready}
+                  onEnroll={() => undefined}
+                  onOpenLMS={onOpenLMS}
+                />
+              ) : (
+                <CertificatesView />
+              )}
+            </div>
+          </main>
+        </div>
+      </div>
+    </div>
+  );
 }

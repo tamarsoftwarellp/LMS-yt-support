@@ -14,6 +14,7 @@ from ..database import get_db
 from ..dependencies import get_current_admin, get_current_student
 from ..models import (Assignment, AssignmentEvaluation, AssignmentSubmission, Course, CourseEnrollment,
                      CourseLesson, CourseSection, LessonProgress, StudentLearningActivity, User)
+from ..services.enrollment import ACTIVE_ENROLLMENT_STATUSES, get_active_enrollment
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Assignments"])
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Assignments"])
@@ -64,8 +65,7 @@ def student_context(db: Session, user_id: uuid.UUID, assignment_id: uuid.UUID) -
     item = load_assignment(db, assignment_id)
     if item.status != "published":
         raise HTTPException(status_code=404, detail="Assignment is not available")
-    enrollment = db.scalar(select(CourseEnrollment).where(CourseEnrollment.user_id == user_id,
-        CourseEnrollment.course_id == item.lesson.section.course_id))
+    enrollment = get_active_enrollment(db, user_id, item.lesson.section.course_id)
     if not enrollment:
         raise HTTPException(status_code=403, detail="Enroll in this course before opening the assignment")
     return item, enrollment
@@ -180,7 +180,10 @@ def admin_download_submission(submission_id: uuid.UUID, db: Session = Depends(ge
 def my_assignments(user: User = Depends(get_current_student), db: Session = Depends(get_db)):
     enrollments = list(db.scalars(select(CourseEnrollment).options(
         selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons)
-    ).where(CourseEnrollment.user_id == user.id)))
+    ).where(
+        CourseEnrollment.user_id == user.id,
+        CourseEnrollment.status.in_(ACTIVE_ENROLLMENT_STATUSES),
+    )))
     lessons = [(enrollment, lesson) for enrollment in enrollments for section in enrollment.course.sections
                for lesson in section.lessons if lesson.lesson_type == "assignment"]
     if not lessons:

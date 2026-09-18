@@ -1,4 +1,6 @@
 import uuid
+import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -9,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .routers.admin_course import router as admin_course_router
 from .routers.quiz import admin_router as admin_quiz_router, student_router as student_quiz_router
-from .routers.coding import admin_router as admin_coding_router, student_router as student_coding_router
+from .routers.coding_test import admin_router as admin_coding_router, student_router as student_coding_router
 from .routers.assignment import admin_router as admin_assignment_router, student_router as student_assignment_router
 from .routers.analytics import admin_router as admin_analytics_router, student_router as student_analytics_router
 from .routers.certificate import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
@@ -39,7 +41,20 @@ from .security import create_access_token, hash_password, hash_refresh_token, ne
 
 
 settings = get_settings()
+logger = logging.getLogger("educonnect.performance")
 app = FastAPI(title=settings.app_name, version="1.0.0")
+
+
+@app.middleware("http")
+async def add_request_timing(request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
+    response.headers["X-Response-Time-Ms"] = f"{elapsed_ms:.1f}"
+    if elapsed_ms >= 750:
+        logger.warning("slow_request method=%s path=%s duration_ms=%.1f", request.method, request.url.path, elapsed_ms)
+    return response
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -77,7 +92,7 @@ STEP_KEYS = {
 
 
 def _issue_session(user: User, db: Session) -> TokenOut:
-    access, expires_in = create_access_token(user.id, user.role)
+    access, expires_in = create_access_token(user.id, user.role, user.credentials_version)
     refresh, digest, expires_at = new_refresh_token()
     db.add(RefreshToken(user_id=user.id, token_hash=digest, expires_at=expires_at))
     db.commit()

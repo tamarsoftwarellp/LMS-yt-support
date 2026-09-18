@@ -72,6 +72,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(30), default="student", nullable=False)
     college_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("colleges.id"), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    credentials_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     student_profile: Mapped["StudentProfile"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
     college: Mapped[College | None] = relationship(foreign_keys=[college_id])
@@ -297,6 +298,7 @@ class Course(Base):
     __table_args__ = (
         CheckConstraint("duration_hours > 0", name="ck_courses_duration_hours_positive"),
         CheckConstraint("status in ('draft', 'published', 'archived')", name="ck_courses_status"),
+        CheckConstraint("access_type in ('college_allocated', 'open_elective')", name="ck_courses_access_type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -307,6 +309,7 @@ class Course(Base):
     duration_hours: Mapped[int] = mapped_column(Integer)
     skills: Mapped[list] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
+    access_type: Mapped[str] = mapped_column(String(30), default="college_allocated", nullable=False, index=True)
     thumbnail_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     instructor_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
@@ -341,7 +344,7 @@ class CourseLesson(Base):
         UniqueConstraint("section_id", "sequence", name="uq_course_lesson_sequence"),
         CheckConstraint("sequence > 0", name="ck_course_lessons_sequence_positive"),
         CheckConstraint("duration_minutes > 0", name="ck_course_lessons_duration_positive"),
-        CheckConstraint("lesson_type in ('video', 'article', 'quiz', 'assignment', 'coding')", name="ck_course_lessons_type"),
+        CheckConstraint("lesson_type in ('video', 'article', 'quiz', 'assignment', 'coding_test')", name="ck_course_lessons_type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -358,7 +361,7 @@ class CourseLesson(Base):
     section: Mapped[CourseSection] = relationship(back_populates="lessons")
     quiz: Mapped["Quiz | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
     assignment: Mapped["Assignment | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
-    coding_challenge: Mapped["CodingChallenge | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
+    coding_test: Mapped["CodingTest | None"] = relationship(back_populates="lesson", uselist=False, cascade="all, delete-orphan")
 
 
 class Quiz(Base):
@@ -561,45 +564,87 @@ class AssignmentEvaluation(Base):
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class CodingChallenge(Base):
-    __tablename__ = "coding_challenges"
+class CodingTest(Base):
+    __tablename__ = "coding_tests"
     __table_args__ = (
-        CheckConstraint("maximum_attempts > 0", name="ck_coding_challenges_maximum_attempts"),
-        CheckConstraint("status in ('draft', 'published')", name="ck_coding_challenges_status"),
+        CheckConstraint("mode in ('algorithmic', 'web', 'react')", name="ck_coding_tests_mode"),
+        CheckConstraint("maximum_attempts > 0", name="ck_coding_tests_maximum_attempts"),
+        CheckConstraint("passing_percentage between 1 and 100", name="ck_coding_tests_passing_percentage"),
+        CheckConstraint("status in ('draft', 'published')", name="ck_coding_tests_status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     lesson_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_lessons.id", ondelete="CASCADE"), unique=True, index=True)
-    instructions: Mapped[str] = mapped_column(Text)
-    function_name: Mapped[str] = mapped_column(String(80), default="solve")
-    starter_code: Mapped[str] = mapped_column(Text, default="function solve() {\n  \n}")
-    # Each entry: {"input": [<json-serialisable args>], "expected": <json-serialisable value>}.
-    # Grading runs client-side in the student's browser (see LiveCoding / code-runner.ts), so
-    # these values necessarily travel to the browser — there is no hidden/held-back test case.
-    test_cases: Mapped[list] = mapped_column(JSON, default=list)
-    maximum_attempts: Mapped[int] = mapped_column(Integer, default=10)
+    mode: Mapped[str] = mapped_column(String(20), default="algorithmic")
+    problem_statement: Mapped[str] = mapped_column(Text)
+    # "algorithmic": subset of python/javascript/java/cpp, graded via Piston (stdin -> stdout).
+    # "web"/"react": a single implicit language matching the mode, graded via structural checks
+    # against the submitted files (see code_execution_service.py) rather than program output.
+    supported_languages: Mapped[list] = mapped_column(JSON, default=lambda: ["python"])
+    starter_code: Mapped[dict] = mapped_column(JSON, default=dict)
+    maximum_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    passing_percentage: Mapped[int] = mapped_column(Integer, default=100)
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    lesson: Mapped[CourseLesson] = relationship(back_populates="coding_challenge")
-    submissions: Mapped[list["StudentCodingSubmission"]] = relationship(back_populates="challenge", cascade="all, delete-orphan")
+    lesson: Mapped[CourseLesson] = relationship(back_populates="coding_test")
+    test_cases: Mapped[list["CodingTestCase"]] = relationship(back_populates="coding_test", cascade="all, delete-orphan", order_by="CodingTestCase.sequence")
+    submissions: Mapped[list["StudentCodingSubmission"]] = relationship(back_populates="coding_test", cascade="all, delete-orphan")
+
+
+class CodingTestCase(Base):
+    __tablename__ = "coding_test_cases"
+    __table_args__ = (
+        UniqueConstraint("coding_test_id", "sequence", name="uq_coding_test_case_sequence"),
+        CheckConstraint("case_type in ('io', 'structural')", name="ck_coding_test_cases_type"),
+        CheckConstraint("weight > 0", name="ck_coding_test_cases_weight"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    coding_test_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coding_tests.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(160))
+    case_type: Mapped[str] = mapped_column(String(20))
+    # Safe to mark hidden: grading happens server-side (Piston / structural checks), so unlike a
+    # purely client-graded design, the expected output never has to reach the student's browser.
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    weight: Mapped[int] = mapped_column(Integer, default=1)
+    stdin: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expected_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checks: Mapped[list] = mapped_column(JSON, default=list)
+    coding_test: Mapped[CodingTest] = relationship(back_populates="test_cases")
 
 
 class StudentCodingSubmission(Base):
     __tablename__ = "student_coding_submissions"
-    __table_args__ = (UniqueConstraint("challenge_id", "enrollment_id", "attempt_number", name="uq_coding_enrollment_attempt"),)
+    __table_args__ = (UniqueConstraint("coding_test_id", "enrollment_id", "attempt_number", name="uq_coding_test_enrollment_attempt"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    challenge_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coding_challenges.id", ondelete="CASCADE"), index=True)
+    coding_test_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coding_tests.id", ondelete="CASCADE"), index=True)
     enrollment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("course_enrollments.id", ondelete="CASCADE"), index=True)
     attempt_number: Mapped[int] = mapped_column(Integer)
-    code: Mapped[str] = mapped_column(Text)
-    passed_count: Mapped[int] = mapped_column(Integer, default=0)
-    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    language: Mapped[str] = mapped_column(String(30))
+    source_files: Mapped[dict] = mapped_column(JSON, default=dict)
+    total_weight: Mapped[int] = mapped_column(Integer, default=0)
+    earned_weight: Mapped[int] = mapped_column(Integer, default=0)
+    percentage: Mapped[int] = mapped_column(Integer, default=0)
     passed: Mapped[bool] = mapped_column(Boolean, default=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    challenge: Mapped[CodingChallenge] = relationship(back_populates="submissions")
+    coding_test: Mapped[CodingTest] = relationship(back_populates="submissions")
     enrollment: Mapped[CourseEnrollment] = relationship()
+    results: Mapped[list["StudentCodingTestResult"]] = relationship(cascade="all, delete-orphan")
+
+
+class StudentCodingTestResult(Base):
+    __tablename__ = "student_coding_test_results"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    submission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("student_coding_submissions.id", ondelete="CASCADE"), index=True)
+    test_case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("coding_test_cases.id", ondelete="CASCADE"), index=True)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    actual_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class StudentLearningActivity(Base):

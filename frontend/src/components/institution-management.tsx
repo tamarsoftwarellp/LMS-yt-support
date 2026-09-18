@@ -1,20 +1,28 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlignLeft,
   Award,
   BarChart3,
   BookOpen,
   Building2,
+  Check,
+  CheckCircle2,
+  Code2,
   Download,
   GraduationCap,
+  HelpCircle,
   Layers,
   LogOut,
+  Paperclip,
   Plus,
   RefreshCw,
   Save,
   Search,
   Trash2,
   Users,
+  Video,
+  X,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { adminDownload } from "../api/admin-lms";
@@ -73,6 +81,14 @@ function Loading() {
     </div>
   );
 }
+function LoadFailure({ message, retry }: { message: string; retry: () => void }) {
+  return (
+    <div className="p-5 border border-red-200 bg-red-50 rounded-xl text-[12px] text-red-700">
+      {message}
+      <button onClick={retry} className="ml-3 font-semibold underline">Try again</button>
+    </div>
+  );
+}
 function Title({ title, sub }: { title: string; sub: string }) {
   return (
     <div>
@@ -84,12 +100,15 @@ function Title({ title, sub }: { title: string; sub: string }) {
 
 function Dashboard() {
   const [x, setX] = useState<api.CollegeDashboard | null>(null);
-  useEffect(() => {
-    api
-      .getCollegeDashboard()
-      .then(setX)
-      .catch((e) => toast.error(e.message));
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
+    setError("");
+    api.getCollegeDashboard().then(setX).catch((e) => setError(e.message));
   }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (error && !x) return <LoadFailure message={error} retry={load} />;
   if (!x) return <Loading />;
   const cards: [[string, string | number], ...[string, string | number][]] = [
     ["Students", x.student_count],
@@ -125,17 +144,18 @@ function Dashboard() {
 function Profile() {
   const [p, setP] = useState<api.InstitutionProfile | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [sensitive, setSensitive] = useState({
     college_name: "",
     contact_email: "",
     website_url: "",
   });
-  useEffect(() => {
-    api
-      .getInstitutionProfile()
-      .then(setP)
-      .catch((e) => toast.error(e.message));
+  const load = useCallback(() => {
+    setLoadError("");
+    api.getInstitutionProfile().then(setP).catch((e) => setLoadError(e.message));
   }, []);
+  useEffect(() => { load(); }, [load]);
+  if (loadError && !p) return <LoadFailure message={loadError} retry={load} />;
   if (!p) return <Loading />;
   const set = (k: keyof api.InstitutionProfile, v: string) =>
     setP({ ...p, [k]: v });
@@ -206,8 +226,13 @@ function Profile() {
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (file) {
-                await api.uploadCollegeLogo(file);
-                toast.success("Logo uploaded");
+                try {
+                  await api.uploadCollegeLogo(file);
+                  await load();
+                  toast.success("Logo uploaded");
+                } catch (error) {
+                  toast.error((error as Error).message);
+                }
               }
             }}
           />
@@ -243,8 +268,13 @@ function Profile() {
         </div>
         <button
           onClick={async () => {
-            await api.requestCollegeProfileChange(sensitive);
-            toast.success("Approval request submitted");
+            try {
+              await api.requestCollegeProfileChange(sensitive);
+              setSensitive({ college_name: "", contact_email: "", website_url: "" });
+              toast.success("Approval request submitted");
+            } catch (error) {
+              toast.error((error as Error).message);
+            }
           }}
           className="text-[11px] text-amber-800 font-semibold"
         >
@@ -309,11 +339,11 @@ function Students() {
   const [managed, setManaged] = useState<api.InstitutionStudent | null>(null);
   const [enrollments, setEnrollments] = useState<api.ManagedEnrollment[]>([]);
   const [batches, setBatches] = useState<api.CollegeBatch[]>([]);
-  const load = () =>
+  const load = useCallback(() =>
     api
       .listInstitutionStudents(q)
       .then(setItems)
-      .catch((e) => toast.error(e.message));
+      .catch((e) => toast.error(e.message)), [q]);
   useEffect(() => {
     api
       .listCollegeBatches()
@@ -321,7 +351,7 @@ function Students() {
       .catch(() => undefined);
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [load]);
   return (
     <div className="space-y-5">
       <Title
@@ -347,10 +377,16 @@ function Students() {
             onChange={async (e) => {
               const file = e.target.files?.[0];
               if (file) {
-                const r = await api.importCollegeStudents(file);
-                toast.success(`${r.created} students imported`);
-                if (r.failed) toast.warning(`${r.failed} rows failed`);
-                await load();
+                try {
+                  const r = await api.importCollegeStudents(file);
+                  toast.success(`${r.created} students imported`);
+                  if (r.failed) toast.warning(`${r.failed} rows failed`);
+                  await load();
+                } catch (error) {
+                  toast.error((error as Error).message);
+                } finally {
+                  e.target.value = "";
+                }
               }
             }}
           />
@@ -391,14 +427,18 @@ function Students() {
                     className="text-[10.5px] border rounded p-1 max-w-28"
                     value={x.batch_id || ""}
                     onChange={async (e) => {
-                      await api.updateCollegeStudent(x.id, {
-                        college_batch_id: e.target.value || null,
-                      });
-                      await load();
+                      try {
+                        await api.updateCollegeStudent(x.id, {
+                          college_batch_id: e.target.value || null,
+                        });
+                        await load();
+                      } catch (error) {
+                        toast.error((error as Error).message);
+                      }
                     }}
                   >
                     <option value="">No batch</option>
-                    {batches.map((batch) => (
+                    {batches.filter((batch) => batch.program_id === x.program_id).map((batch) => (
                       <option key={batch.id} value={batch.id}>
                         {batch.name}
                       </option>
@@ -409,10 +449,14 @@ function Students() {
                     className="text-[10.5px] border rounded p-1 ml-1 max-w-24"
                     value={x.section_id || ""}
                     onChange={async (e) => {
-                      await api.updateCollegeStudent(x.id, {
-                        college_section_id: e.target.value || null,
-                      });
-                      await load();
+                      try {
+                        await api.updateCollegeStudent(x.id, {
+                          college_section_id: e.target.value || null,
+                        });
+                        await load();
+                      } catch (error) {
+                        toast.error((error as Error).message);
+                      }
                     }}
                   >
                     <option value="">No section</option>
@@ -431,10 +475,14 @@ function Students() {
                 <td className="space-x-2">
                   <button
                     onClick={async () => {
-                      await api.updateCollegeStudent(x.id, {
-                        is_active: !x.is_active,
-                      });
-                      await load();
+                      try {
+                        await api.updateCollegeStudent(x.id, {
+                          is_active: !x.is_active,
+                        });
+                        await load();
+                      } catch (error) {
+                        toast.error((error as Error).message);
+                      }
                     }}
                     className={`px-2 py-1 rounded ${x.is_active ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
                   >
@@ -442,9 +490,13 @@ function Students() {
                   </button>
                   <button
                     onClick={async () => {
-                      const r = await api.initiateStudentPasswordReset(x.id);
-                      await navigator.clipboard?.writeText(r.reset_token);
-                      toast.success("One-time reset token copied");
+                      try {
+                        const r = await api.initiateStudentPasswordReset(x.id);
+                        await navigator.clipboard?.writeText(r.reset_token);
+                        toast.success("One-time reset token copied");
+                      } catch (error) {
+                        toast.error((error as Error).message);
+                      }
                     }}
                     className="text-blue-700"
                   >
@@ -452,10 +504,12 @@ function Students() {
                   </button>
                   <button
                     onClick={async () => {
-                      setManaged(x);
-                      setEnrollments(
-                        await api.listManagedStudentEnrollments(x.id),
-                      );
+                      try {
+                        setEnrollments(await api.listManagedStudentEnrollments(x.id));
+                        setManaged(x);
+                      } catch (error) {
+                        toast.error((error as Error).message);
+                      }
                     }}
                     className="text-emerald-700"
                   >
@@ -494,18 +548,20 @@ function Students() {
                 <button
                   className="text-[11px] text-blue-700"
                   onClick={async () => {
-                    if (!row.enrollment_id) {
-                      await api.enrollManagedStudent(managed.id, row.course_id);
-                    } else {
-                      await api.setManagedEnrollmentStatus(
-                        managed.id,
-                        row.enrollment_id,
-                        row.status === "revoked",
-                      );
+                    try {
+                      if (!row.enrollment_id) {
+                        await api.enrollManagedStudent(managed.id, row.course_id);
+                      } else {
+                        await api.setManagedEnrollmentStatus(
+                          managed.id,
+                          row.enrollment_id,
+                          row.status === "revoked",
+                        );
+                      }
+                      setEnrollments(await api.listManagedStudentEnrollments(managed.id));
+                    } catch (error) {
+                      toast.error((error as Error).message);
                     }
-                    setEnrollments(
-                      await api.listManagedStudentEnrollments(managed.id),
-                    );
                   }}
                 >
                   {!row.enrollment_id
@@ -534,10 +590,16 @@ function Faculty() {
     designation: "",
     department: "",
   });
-  const load = () => api.listCollegeFaculty().then(setItems);
+  const [loadError, setLoadError] = useState("");
+  const load = () => api.listCollegeFaculty().then(setItems).catch((error) => {
+    setLoadError(error.message);
+    throw error;
+  });
   useEffect(() => {
-    load();
+    load().catch(() => undefined);
   }, []);
+  if (loadError && !items.length)
+    return <LoadFailure message={loadError} retry={() => { setLoadError(""); load().catch(() => undefined); }} />;
   const add = async () => {
     try {
       await api.addCollegeFaculty(form);
@@ -597,8 +659,12 @@ function Faculty() {
             </div>
             <button
               onClick={async () => {
-                await api.setCollegeFacultyStatus(x.id, !x.is_active);
-                await load();
+                try {
+                  await api.setCollegeFacultyStatus(x.id, !x.is_active);
+                  await load();
+                } catch (error) {
+                  toast.error((error as Error).message);
+                }
               }}
               className="text-[11px]"
             >
@@ -619,16 +685,20 @@ function Batches() {
     academic_year: "",
     capacity: 60,
   });
+  const [loadError, setLoadError] = useState("");
   const load = () =>
     Promise.all([api.listCollegeBatches(), api.listInstitutionPrograms()]).then(
       ([a, b]) => {
         setItems(a);
         setPrograms(b.filter((x) => x.offered));
+        setLoadError("");
       },
-    );
+    ).catch((error) => { setLoadError(error.message); throw error; });
   useEffect(() => {
-    load();
+    load().catch(() => undefined);
   }, []);
+  if (loadError && !items.length)
+    return <LoadFailure message={loadError} retry={() => load().catch(() => undefined)} />;
   const add = async () => {
     try {
       await api.addCollegeBatch(form);
@@ -700,8 +770,12 @@ function Batches() {
               onClick={async () => {
                 const name = prompt("Section name");
                 if (name) {
-                  await api.addCollegeSection(b.id, { name, capacity: 30 });
-                  await load();
+                  try {
+                    await api.addCollegeSection(b.id, { name, capacity: 30 });
+                    await load();
+                  } catch (error) {
+                    toast.error((error as Error).message);
+                  }
                 }
               }}
               className="px-3 py-1.5 border rounded-lg text-[11px]"
@@ -717,6 +791,7 @@ function Batches() {
 function Courses() {
   const [d, setD] = useState<api.CourseAllocationData | null>(null);
   const [programs, setPrograms] = useState<api.InstitutionProgram[]>([]);
+  const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({ course_id: "", program_id: "" });
   const load = () =>
     Promise.all([
@@ -725,10 +800,13 @@ function Courses() {
     ]).then(([a, b]) => {
       setD(a);
       setPrograms(b.filter((x) => x.offered));
-    });
+      setLoadError("");
+    }).catch((error) => { setLoadError(error.message); throw error; });
   useEffect(() => {
-    load();
+    load().catch(() => undefined);
   }, []);
+  if (loadError && !d)
+    return <LoadFailure message={loadError} retry={() => load().catch(() => undefined)} />;
   if (!d) return <Loading />;
   return (
     <div className="space-y-5">
@@ -811,63 +889,311 @@ function Courses() {
 }
 function Progress() {
   const [data, setData] = useState<api.CollegeProgressData | null>(null);
-  useEffect(() => {
-    api.loadCollegeProgress().then(setData);
+  const [openStudentId, setOpenStudentId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [programId, setProgramId] = useState("all");
+  const [batchId, setBatchId] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setData(await api.loadCollegeProgress());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load progress");
+    } finally {
+      setLoading(false);
+    }
   }, []);
-  if (!data) return <Loading />;
+  useEffect(() => {
+    load();
+  }, [load]);
+  const programs = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          (data?.students || []).map((x) => [
+            x.program_id,
+            { id: x.program_id, name: x.program_name },
+          ]),
+        ).values(),
+      ),
+    [data],
+  );
+  const batches = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          (data?.students || [])
+            .filter((x) => x.batch_id && (programId === "all" || x.program_id === programId))
+            .map((x) => [x.batch_id!, { id: x.batch_id!, name: x.batch_name! }]),
+        ).values(),
+      ),
+    [data, programId],
+  );
+  const filteredStudents = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return (data?.students || [])
+      .filter((x) => {
+        const matchesSearch =
+          !term ||
+          [x.student_name, x.student_email, x.roll_number, x.program_name]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes(term));
+        const matchesProgram = programId === "all" || x.program_id === programId;
+        const matchesBatch = batchId === "all" || x.batch_id === batchId;
+        const complete = x.enrollments > 0 && x.completed === x.enrollments;
+        const matchesStatus =
+          statusFilter === "all" ||
+          (statusFilter === "at-risk" && x.at_risk) ||
+          (statusFilter === "on-track" && x.enrollments > 0 && !x.at_risk && !complete) ||
+          (statusFilter === "completed" && complete) ||
+          (statusFilter === "not-started" && x.enrollments === 0);
+        return matchesSearch && matchesProgram && matchesBatch && matchesStatus;
+      })
+      .sort((a, b) => Number(b.at_risk) - Number(a.at_risk) || a.student_name.localeCompare(b.student_name));
+  }, [batchId, data, programId, query, statusFilter]);
+  if (loading && !data) return <Loading />;
+  if (!data)
+    return (
+      <div className="space-y-4">
+        <Title title="Student Progress" sub="Track student learning and assessment performance." />
+        <div className="p-5 border border-red-200 bg-red-50 rounded-xl text-[12px] text-red-700">
+          {error || "Unable to load progress."}
+          <button onClick={load} className="ml-3 font-semibold underline">Try again</button>
+        </div>
+      </div>
+    );
+  const summary = data.summary || {
+    total_students: data.students.length,
+    students_with_enrollments: data.students.filter((x) => x.enrollments).length,
+    completed_students: data.students.filter((x) => x.enrollments && x.completed === x.enrollments).length,
+    average_progress: data.students.length
+      ? Math.round(data.students.reduce((sum, x) => sum + x.average_progress, 0) / data.students.length)
+      : 0,
+    at_risk_count: data.at_risk_count,
+  };
   return (
     <div className="space-y-5">
-      <Title
-        title="Student Progress"
-        sub={`${data.at_risk_count} at-risk students · grouped by program, batch and section.`}
-      />
-      <div className="grid sm:grid-cols-3 gap-2">
-        {data.groups.map((g) => (
-          <div className="p-3 bg-blue-50 rounded-xl" key={`${g.type}-${g.id}`}>
-            <b>{g.name}</b>
-            <p className="text-[10.5px] capitalize">
-              {g.type} · {g.students} students · {g.average_progress}% avg ·{" "}
-              {g.at_risk_students} at risk
-            </p>
+      <div className="flex items-start justify-between gap-3">
+        <Title title="Student Progress" sub="Monitor participation, course completion and students who need attention." />
+        <button onClick={load} disabled={loading} className="p-2.5 border border-[#E3E8F2] rounded-xl text-[#5A6A8A] hover:text-[#1B3A6B] disabled:opacity-50" title="Refresh progress">
+          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+        </button>
+      </div>
+      {error && <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-[12px]">Showing the last loaded data. Refresh failed: {error}</div>}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          ["Total students", summary.total_students, `${summary.students_with_enrollments} enrolled`],
+          ["Average progress", `${summary.average_progress}%`, "Across enrolled students"],
+          ["Need attention", summary.at_risk_count, "Below 40% progress"],
+          ["Fully completed", summary.completed_students, "All enrolled courses"],
+        ].map(([label, value, hint]) => (
+          <div key={label} className="p-4 border border-[#E3E8F2] rounded-2xl bg-white">
+            <p className="text-[11px] text-[#5A6A8A]">{label}</p>
+            <p className="text-[23px] font-bold text-[#0F1C3F] mt-1">{value}</p>
+            <p className="text-[10px] text-[#9AA5BE] mt-1">{hint}</p>
           </div>
         ))}
       </div>
-      {data.students.map((x) => (
-        <div
-          className={`p-4 border rounded-xl ${x.at_risk ? "border-red-300 bg-red-50" : ""}`}
+      <div className="p-3 border border-[#E3E8F2] rounded-2xl bg-white grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <label className="relative sm:col-span-2 lg:col-span-1">
+          <Search size={14} className="absolute left-3 top-3 text-[#9AA5BE]" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, email or roll no." className={`${field} pl-9`} />
+        </label>
+        <select value={programId} onChange={(e) => { setProgramId(e.target.value); setBatchId("all"); }} className={field}>
+          <option value="all">All programs</option>
+          {programs.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </select>
+        <select value={batchId} onChange={(e) => setBatchId(e.target.value)} className={field}>
+          <option value="all">All batches</option>
+          {batches.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={field}>
+          <option value="all">All progress states</option>
+          <option value="at-risk">Needs attention</option>
+          <option value="on-track">In progress</option>
+          <option value="completed">Fully completed</option>
+          <option value="not-started">Not enrolled</option>
+        </select>
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-[12px] font-semibold text-[#0F1C3F]">{filteredStudents.length} student{filteredStudents.length === 1 ? "" : "s"}</p>
+        {(query || programId !== "all" || batchId !== "all" || statusFilter !== "all") && (
+          <button onClick={() => { setQuery(""); setProgramId("all"); setBatchId("all"); setStatusFilter("all"); }} className="text-[11px] text-[#1B3A6B] font-semibold">Clear filters</button>
+        )}
+      </div>
+      {filteredStudents.map((x) => (
+        <button
           key={x.student_id}
+          onClick={() => setOpenStudentId(x.student_id)}
+          className={`w-full text-left p-4 border rounded-2xl transition-colors hover:border-[#1B3A6B] ${x.at_risk ? "border-red-200 bg-red-50/60" : "border-[#E3E8F2] bg-white"}`}
         >
-          <div className="flex justify-between">
-            <b>
-              {x.student_name}
-              {x.at_risk && (
-                <span className="ml-2 text-red-600 text-[10px]">AT RISK</span>
-              )}
-            </b>
-            <span>{x.average_progress}%</span>
+          <div className="flex justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <b className="text-[13px] text-[#0F1C3F]">{x.student_name}</b>
+                {x.at_risk && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[9px] font-bold">NEEDS ATTENTION</span>}
+                {!x.is_active && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[9px] font-bold">INACTIVE</span>}
+              </div>
+              <p className="text-[10.5px] text-[#7C8AA5] truncate mt-0.5">{x.student_email}{x.roll_number ? ` · ${x.roll_number}` : ""}</p>
+            </div>
+            <span className="text-[17px] font-bold text-[#0F1C3F] shrink-0">{x.average_progress}%</span>
           </div>
-          <p className="text-[11px] text-[#5A6A8A]">
-            {x.program_name} · {x.batch_name || "No batch"} · {x.completed}/
-            {x.enrollments} completed · {x.evaluations_completed} evaluations
+          <p className="text-[11px] text-[#5A6A8A] mt-3">
+            {x.program_name} · {x.current_year} · {x.batch_name || "No batch"}{x.section_name ? ` · ${x.section_name}` : ""}
+          </p>
+          <p className="text-[10.5px] text-[#7C8AA5] mt-1">
+            {x.completed}/{x.enrollments} courses completed · {x.evaluations_completed} assignments evaluated · Open for lesson details
           </p>
           <div className="h-2 bg-gray-100 rounded mt-3">
             <div
-              className="h-full bg-emerald-500 rounded"
+              className={`h-full rounded ${x.at_risk ? "bg-red-500" : "bg-emerald-500"}`}
               style={{ width: `${x.average_progress}%` }}
             />
           </div>
-        </div>
+        </button>
       ))}
-      {!data.students.length && <Empty text="No progress data available" />}
+      {!filteredStudents.length && <Empty text={data.students.length ? "No students match these filters" : "No progress data available"} />}
+      {openStudentId && (
+        <StudentProgressDetailPanel
+          studentId={openStudentId}
+          onClose={() => setOpenStudentId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+const LESSON_TYPE_META: Record<
+  api.StudentProgressLesson["lesson_type"],
+  { label: string; icon: React.ElementType }
+> = {
+  video: { label: "Video", icon: Video },
+  article: { label: "Article", icon: AlignLeft },
+  quiz: { label: "Quiz", icon: HelpCircle },
+  assignment: { label: "Assignment", icon: Paperclip },
+  coding_test: { label: "Coding Test", icon: Code2 },
+};
+
+function StudentProgressDetailPanel({
+  studentId,
+  onClose,
+}: {
+  studentId: string;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<api.StudentProgressDetail | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api
+      .loadStudentProgressDetail(studentId)
+      .then(setDetail)
+      .catch((e) =>
+        setError(e instanceof Error ? e.message : "Unable to load progress"),
+      );
+  }, [studentId]);
+  return (
+    <div className="fixed inset-0 z-50 bg-[#071326]/70 p-5 overflow-y-auto">
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[18px] font-bold">
+            {detail?.student_name || "Student"} · Progress
+          </h2>
+          <button onClick={onClose} className="p-1.5 text-[#5A6A8A]">
+            <X size={18} />
+          </button>
+        </div>
+        {error && (
+          <div className="p-3 bg-red-50 text-red-700 rounded-xl text-[12px]">
+            {error}
+          </div>
+        )}
+        {!detail && !error && <Loading />}
+        {detail && !detail.courses.length && (
+          <Empty text="Not enrolled in any course yet" />
+        )}
+        {detail?.courses.map((course) => (
+          <div
+            key={course.enrollment_id}
+            className="border border-slate-200 rounded-xl overflow-hidden"
+          >
+            <div className="p-3.5 bg-[#F8FAFD] flex items-center justify-between">
+              <div>
+                <b className="text-[13.5px]">{course.course_title}</b>
+                <p className="text-[11px] text-[#5A6A8A] capitalize">
+                  {course.status.replace("_", " ")}
+                </p>
+                <span className={`inline-flex mt-1 px-2 py-0.5 rounded-full text-[9.5px] font-semibold ${course.college_managed ? "bg-blue-50 text-blue-700" : "bg-violet-50 text-violet-700"}`}>
+                  {course.college_managed ? "College course" : "Self-learning · read only"}
+                </span>
+              </div>
+              <span className="text-[13px] font-semibold">
+                {course.progress_percentage}%
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {course.lessons.map((lesson) => {
+                const meta = LESSON_TYPE_META[lesson.lesson_type];
+                const Icon = meta.icon;
+                const done = lesson.status === "completed";
+                return (
+                  <div
+                    key={lesson.lesson_id}
+                    className="p-3 flex items-center gap-3"
+                  >
+                    <span
+                      className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${done ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-400"}`}
+                    >
+                      {done ? <Check size={13} /> : <Icon size={12} />}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-medium truncate">
+                        {lesson.title}
+                      </p>
+                      <p className="text-[10.5px] text-[#9AA5BE]">
+                        {lesson.section_title} · {meta.label}
+                        {lesson.lesson_type === "quiz" &&
+                          lesson.quiz_best_percentage !== undefined &&
+                          ` · Best score ${lesson.quiz_best_percentage}%${lesson.quiz_passed ? " (passed)" : ""}`}
+                        {lesson.lesson_type === "assignment" &&
+                          lesson.assignment_status &&
+                          ` · ${lesson.assignment_status.replace("_", " ")}${lesson.assignment_marks_awarded !== undefined ? ` · ${lesson.assignment_marks_awarded} marks` : ""}`}
+                        {lesson.lesson_type === "coding_test" &&
+                          lesson.coding_attempts_used !== undefined &&
+                          ` · ${lesson.coding_attempts_used} attempt${lesson.coding_attempts_used === 1 ? "" : "s"}${lesson.coding_passed ? " · passed" : ""}`}
+                      </p>
+                    </div>
+                    {done && (
+                      <CheckCircle2
+                        size={15}
+                        className="text-emerald-600 shrink-0"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 function Certificates() {
   const [d, setD] = useState<api.CollegeCertificates | null>(null);
-  const load = () => api.loadCollegeCertificates().then(setD);
+  const [loadError, setLoadError] = useState("");
+  const load = () => api.loadCollegeCertificates().then((value) => {
+    setD(value);
+    setLoadError("");
+  }).catch((error) => { setLoadError(error.message); throw error; });
   useEffect(() => {
-    load();
+    load().catch(() => undefined);
   }, []);
+  if (loadError && !d)
+    return <LoadFailure message={loadError} retry={() => load().catch(() => undefined)} />;
   if (!d) return <Loading />;
   return (
     <div className="space-y-6">
@@ -887,8 +1213,13 @@ function Certificates() {
           <button
             disabled={!!x.request_status}
             onClick={async () => {
-              await api.requestCollegeCertificate(x.enrollment_id);
-              await load();
+              try {
+                await api.requestCollegeCertificate(x.enrollment_id);
+                await load();
+                toast.success("Certificate request submitted");
+              } catch (error) {
+                toast.error((error as Error).message);
+              }
             }}
             className="text-[11px] text-blue-700"
           >
@@ -909,9 +1240,15 @@ function Reports() {
   const [d, setD] = useState<{
     programs: { name: string; students: number }[];
   } | null>(null);
-  useEffect(() => {
-    api.loadCollegeReports().then(setD);
+  const [loadError, setLoadError] = useState("");
+  const load = useCallback(() => {
+    setLoadError("");
+    api.loadCollegeReports().then(setD).catch((error) => setLoadError(error.message));
   }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (loadError && !d) return <LoadFailure message={loadError} retry={load} />;
   if (!d) return <Loading />;
   const kinds = [
     "students",
@@ -928,7 +1265,7 @@ function Reports() {
       />
       <div className="grid sm:grid-cols-2 gap-3">
         {kinds.map((k) => (
-          <div className="p-4 border rounded-xl">
+          <div key={k} className="p-4 border rounded-xl">
             <b className="capitalize">{k.replace("-", " ")}</b>
             <div className="flex gap-3 mt-3">
               <button
@@ -936,7 +1273,7 @@ function Reports() {
                   adminDownload(
                     `/api/v1/admin/institution/reports/${k}.csv`,
                     `${k}.csv`,
-                  )
+                  ).catch((error) => toast.error(error.message))
                 }
                 className="text-[11px] text-blue-700"
               >
@@ -947,7 +1284,7 @@ function Reports() {
                   adminDownload(
                     `/api/v1/admin/institution/reports/${k}.pdf`,
                     `${k}.pdf`,
-                  )
+                  ).catch((error) => toast.error(error.message))
                 }
                 className="text-[11px] text-red-700"
               >
@@ -1021,7 +1358,12 @@ export function InstitutionManagement({ onClose }: { onClose: () => void }) {
         </button>
       </header>
       <div className="grid lg:grid-cols-[240px_1fr] max-w-[1500px] mx-auto">
-        <aside className="p-3 lg:min-h-[calc(100vh-64px)]">
+        <div className="p-3 pb-0 lg:hidden">
+          <select aria-label="College admin section" value={tab} onChange={(event) => navigateTab(event.target.value as Tab)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[14px] font-semibold shadow-sm">
+            {NAV.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </div>
+        <aside className="hidden p-3 lg:block lg:min-h-[calc(100vh-64px)]">
           <nav className="bg-white rounded-2xl p-2 border">
             {NAV.map(([k, l, I]) => (
               <button

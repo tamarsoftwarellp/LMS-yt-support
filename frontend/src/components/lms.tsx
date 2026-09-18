@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CoursePlayer } from "./course-player";
 import type { CourseData } from "./course-player";
-import { LiveAssignment, LiveCoding, LiveQuiz, Notice } from "./learning-shared";
+import { LiveAssignment, LiveCodingTest, LiveQuiz, Notice } from "./learning-shared";
 import {
   BookOpen, LayoutDashboard, GraduationCap, ClipboardList,
   BarChart2, Award, ArrowLeft, Search, Play, CheckCircle2,
@@ -178,8 +178,8 @@ function Catalog({ onEnrolled, onOpenCourse }: { onEnrolled: () => void; onOpenC
   const [search, setSearch] = useState(""); const [level, setLevel] = useState("");
   const [data, setData] = useState<{ items: CatalogCourse[]; levels: string[] } | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [enrolling, setEnrolling] = useState("");
-  const load = () => { setLoading(true); setError(""); loadCourseCatalog({ search, level }).then(setData).catch(e => setError(e instanceof Error ? e.message : "Unable to load catalog")).finally(() => setLoading(false)); };
-  useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer); }, [search, level]);
+  const load = useCallback(() => { setLoading(true); setError(""); loadCourseCatalog({ search, level }).then(setData).catch(e => setError(e instanceof Error ? e.message : "Unable to load catalog")).finally(() => setLoading(false)); }, [search, level]);
+  useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer); }, [load]);
   const enroll = async (course: CatalogCourse) => {
     setEnrolling(course.id); setError("");
     try { await enrollCourse(course.id); onEnrolled(); load(); }
@@ -197,11 +197,20 @@ function Catalog({ onEnrolled, onOpenCourse }: { onEnrolled: () => void; onOpenC
       </div>}
     </div>
     {loading ? <div className="py-16 flex items-center justify-center gap-2 text-[13px] text-[#5A6A8A]"><RefreshCw size={15} className="animate-spin" />Loading courses…</div>
-    : data && data.items.length ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{data.items.map(c => (
+    : data && data.items.length ? <div className="space-y-7">{([
+      { type: "college_allocated" as const, title: "My College Courses", description: "Courses selected for your program or batch." },
+      { type: "open_elective" as const, title: "Explore Optional Courses", description: "Independent learning you can join by choice." },
+    ]).map(group => {
+      const courses = data.items.filter(course => course.access_type === group.type);
+      if (!courses.length) return null;
+      return <section key={group.type} className="space-y-3">
+        <div><h3 className="text-[15px] font-bold text-[#0F1C3F]">{group.title}</h3><p className="text-[11.5px] text-[#5A6A8A]">{group.description}</p></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{courses.map(c => (
       <div key={c.id} className="bg-white rounded-2xl border border-[rgba(27,58,107,0.1)] shadow-sm overflow-hidden">
         <div className="p-4">
           <div className="flex justify-between items-start"><div className="w-10 h-10 rounded-xl bg-[#EBF1FA] flex items-center justify-center"><BookOpen size={17} className="text-[#1B3A6B]" /></div><span className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold border ${levelColor[c.level] || "bg-slate-50 text-slate-600 border-slate-200"}`}>{c.level}</span></div>
-          <p className="text-[13.5px] font-bold text-[#0F1C3F] mt-3 mb-0.5 line-clamp-2 leading-snug">{c.title}</p>
+          <span className={`inline-flex mt-3 px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.access_type === "open_elective" ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}`}>{c.catalog_label}</span>
+          <p className="text-[13.5px] font-bold text-[#0F1C3F] mt-2 mb-0.5 line-clamp-2 leading-snug">{c.title}</p>
           {c.instructor_name && <p className="text-[11.5px] text-[#5A6A8A] mb-2">by {c.instructor_name}</p>}
           <div className="flex items-center gap-2 mb-2 flex-wrap text-[11.5px] text-[#5A6A8A]"><span className="flex items-center gap-1"><Users size={10} />{c.enrollment_count} enrolled</span><span className="text-[#CBD5E1]">·</span><span className="flex items-center gap-1"><Clock size={10} />{c.duration_hours}h</span></div>
           <div className="flex gap-1.5 flex-wrap mb-3">{c.skills.slice(0, 3).map(s => <span key={s} className="px-2 py-0.5 bg-[#EBF1FA] text-[#1B3A6B] text-[10.5px] rounded-full font-medium">{s}</span>)}{c.skills.length > 3 && <span className="text-[10.5px] text-[#9AA5BE]">+{c.skills.length - 3}</span>}</div>
@@ -213,7 +222,8 @@ function Catalog({ onEnrolled, onOpenCourse }: { onEnrolled: () => void; onOpenC
               </div>}
         </div>
       </div>
-    ))}</div> : !error ? <div className="py-14 text-center border-2 border-dashed border-slate-200 rounded-2xl"><BookOpen size={28} className="mx-auto text-[#9AA5BE]" /><p className="mt-3 text-[13px] text-[#5A6A8A]">No courses match your filters.</p></div> : null}
+    ))}</div></section>;
+    })}</div> : !error ? <div className="py-14 text-center border-2 border-dashed border-slate-200 rounded-2xl"><BookOpen size={28} className="mx-auto text-[#9AA5BE]" /><p className="mt-3 text-[13px] text-[#5A6A8A]">No courses match your filters.</p></div> : null}
   </div>;
 }
 
@@ -290,11 +300,11 @@ function ProgressSection() {
 function CertificatesSection() {
   const [items, setItems] = useState<Certificate[]>([]); const [eligible, setEligible] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(""); const [error, setError] = useState(""); const [message, setMessage] = useState("");
-  const load = () => Promise.all([loadCertificates(), loadEnrollments()]).then(([certs, enrollments]) => {
+  const load = useCallback(() => Promise.all([loadCertificates(), loadEnrollments()]).then(([certs, enrollments]) => {
     setItems(certs);
     setEligible(enrollments.filter(e => e.status === "completed" && e.progress_percentage === 100 && !certs.some(c => c.enrollment_id === e.id && c.status === "issued")));
-  });
-  useEffect(() => { load().catch(e => setError(e instanceof Error ? e.message : "Unable to load certificates")).finally(() => setLoading(false)); }, []);
+  }), []);
+  useEffect(() => { load().catch(e => setError(e instanceof Error ? e.message : "Unable to load certificates")).finally(() => setLoading(false)); }, [load]);
   const generate = async (enrollmentId: string) => { setBusy(enrollmentId); setError(""); try { await generateCertificate(enrollmentId); setMessage("Certificate generated successfully."); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Unable to generate certificate"); } finally { setBusy(""); } };
   if (loading) return <div className="py-16 flex items-center justify-center gap-2 text-[13px] text-[#5A6A8A]"><RefreshCw size={15} className="animate-spin" />Loading certificates…</div>;
   return <div className="space-y-5">
@@ -320,8 +330,8 @@ function CertificatesSection() {
 // ─── COURSE PLAYER WRAPPER ─────────────────────────────────────────────────
 function LMSCoursePlayer({ courseId, onBack }: { courseId: string; onBack: () => void }) {
   const [enrolled, setEnrolled] = useState<EnrolledCourse | null>(null); const [error, setError] = useState(""); const [enrolling, setEnrolling] = useState(false);
-  const load = () => loadEnrolledCourse(courseId).then(setEnrolled).catch(e => setError(e instanceof Error ? e.message : "Unable to open course"));
-  useEffect(() => { load(); }, [courseId]);
+  const load = useCallback(() => loadEnrolledCourse(courseId).then(setEnrolled).catch(e => setError(e instanceof Error ? e.message : "Unable to open course")), [courseId]);
+  useEffect(() => { load(); }, [load]);
   const enrollNow = async () => { setEnrolling(true); setError(""); try { await enrollCourse(courseId); await load(); } catch (e) { setError(e instanceof Error ? e.message : "Enrollment failed"); } finally { setEnrolling(false); } };
   if (error) return <div className="p-8"><Notice error={error} /><button onClick={onBack} className="mt-4 flex items-center gap-2 text-[13px] text-[#1B3A6B] font-semibold"><ArrowLeft size={14} />Back</button></div>;
   if (!enrolled) return <div className="py-16 flex items-center justify-center gap-2 text-[13px] text-[#5A6A8A]"><RefreshCw size={15} className="animate-spin" />Loading course…</div>;
@@ -349,7 +359,7 @@ function LMSCoursePlayer({ courseId, onBack }: { courseId: string; onBack: () =>
       onVideoProgress={enrolled.is_enrolled ? async (lessonId, previous, current, duration) => saveLessonProgress(enrolled.enrollment_id!, lessonId, "in_progress", 0, current, previous, duration) : undefined}
       renderQuiz={(lesson, onPassed) => <LiveQuiz lesson={lesson} onPassed={onPassed} />}
       renderAssignment={(lesson, onPassed) => <LiveAssignment lesson={lesson} onPassed={onPassed} />}
-      renderCoding={(lesson, onPassed) => <LiveCoding lesson={lesson} onPassed={onPassed} />} />
+      renderCodingTest={(lesson, onPassed) => <LiveCodingTest lesson={lesson} onPassed={onPassed} />} />
   </div>;
 }
 
@@ -388,7 +398,7 @@ export function LMSModule({ onBack, onLogout }: { onBack: () => void; onLogout: 
             <div><p className="font-semibold text-[14px] leading-none text-[#0F1C3F]">EduConnect</p><span className="inline-block mt-0.5 px-2 py-0.5 bg-[#EBF1FA] text-[#1B3A6B] text-[9.5px] font-bold rounded-full">LMS</span></div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={onBack} className="hidden sm:flex items-center gap-1.5 text-[12px] text-[#5A6A8A] hover:text-[#1B3A6B] font-medium"><ArrowLeft size={13} />Career Portal</button>
+            <button onClick={onBack} className="hidden sm:flex items-center gap-1.5 text-[13px] text-[#5A6A8A] hover:text-[#1B3A6B] font-medium"><ArrowLeft size={13} />Career workspace</button>
             <div className="flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-[#F4F7FC]"><span className="w-7 h-7 rounded-lg bg-[#1B3A6B] flex items-center justify-center text-white"><UserRound size={13} /></span><span className="text-[11.5px] font-semibold text-[#0F1C3F] max-w-28 truncate hidden sm:block">{student?.full_name || "Student"}</span></div>
             <button onClick={onLogout} className="p-2 text-[#9AA5BE] hover:text-red-500"><LogOut size={15} /></button>
           </div>

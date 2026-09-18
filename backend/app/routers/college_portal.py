@@ -3,6 +3,7 @@ import csv
 import io
 import hashlib
 import secrets
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,8 +12,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from ..schemas.college_portal import (
     InstitutionProfileOut,
@@ -24,8 +25,10 @@ from ..database import get_db
 from ..dependencies import get_current_college_admin
 from ..config import get_settings
 from ..models import (
+    Assignment,
     AssignmentSubmission,
     Certificate,
+    CodingTest,
     College,
     CollegeAuditLog,
     CollegeBatch,
@@ -37,8 +40,13 @@ from ..models import (
     CollegeProfileChangeRequest,
     Course,
     CourseEnrollment,
+    CourseLesson,
+    CourseSection,
+    LessonProgress,
     Program,
+    Quiz,
     RefreshToken,
+    StudentCodingSubmission,
     StudentProfile,
     StudentPasswordResetRequest,
     StudentQuizAttempt,
@@ -47,6 +55,7 @@ from ..models import (
 from ..security import hash_password
 
 router = APIRouter(prefix="/api/v1/admin/institution", tags=["College Portal"])
+ACTIVE_ENROLLMENT_STATUSES = ("enrolled", "in_progress", "completed")
 
 
 class FacultyIn(BaseModel):
@@ -402,7 +411,10 @@ def list_students(
     db: Session = Depends(get_db),
 ) -> list[InstitutionStudentOut]:
     college = _require_college(admin, db)
-    query = select(StudentProfile).where(StudentProfile.college_id == college.id)
+    query = select(StudentProfile).options(
+        selectinload(StudentProfile.user),
+        selectinload(StudentProfile.program),
+    ).where(StudentProfile.college_id == college.id)
     if search and search.strip():
         value = f"%{search.strip()}%"
         query = query.join(User, User.id == StudentProfile.user_id).where(
@@ -411,21 +423,30 @@ def list_students(
             | (StudentProfile.roll_number.ilike(value))
         )
     rows = list(db.scalars(query.order_by(StudentProfile.created_at.desc()).limit(500)))
+    user_ids = [row.user_id for row in rows]
+    enrollment_stats = {
+        user_id: (int(count), round(float(average or 0)))
+        for user_id, count, average in db.execute(
+            select(
+                CourseEnrollment.user_id,
+                func.count(CourseEnrollment.id),
+                func.avg(CourseEnrollment.progress_percentage),
+            )
+            .join(Course, Course.id == CourseEnrollment.course_id)
+            .where(CourseEnrollment.user_id.in_(user_ids))
+            .where(Course.access_type == "college_allocated")
+            .group_by(CourseEnrollment.user_id)
+        ).all()
+    } if user_ids else {}
+    batch_ids = {row.college_batch_id for row in rows if row.college_batch_id}
+    section_ids = {row.college_section_id for row in rows if row.college_section_id}
+    batches = {item.id: item for item in db.scalars(select(CollegeBatch).where(CollegeBatch.id.in_(batch_ids)))} if batch_ids else {}
+    sections = {item.id: item for item in db.scalars(select(CollegeSection).where(CollegeSection.id.in_(section_ids)))} if section_ids else {}
     result = []
     for row in rows:
-        enrollments = list(
-            db.scalars(
-                select(CourseEnrollment).where(CourseEnrollment.user_id == row.user_id)
-            )
-        )
-        batch = (
-            db.get(CollegeBatch, row.college_batch_id) if row.college_batch_id else None
-        )
-        section = (
-            db.get(CollegeSection, row.college_section_id)
-            if row.college_section_id
-            else None
-        )
+        enrollment_count, average_progress = enrollment_stats.get(row.user_id, (0, 0))
+        batch = batches.get(row.college_batch_id)
+        section = sections.get(row.college_section_id)
         result.append(
             InstitutionStudentOut(
                 id=str(row.id),
@@ -433,17 +454,14 @@ def list_students(
                 full_name=row.full_name,
                 email=row.user.email,
                 mobile=row.user.mobile,
+                program_id=str(row.program_id),
                 program_name=row.program.name,
                 current_year=row.current_year,
                 roll_number=row.roll_number,
                 created_at=row.created_at,
                 is_active=row.user.is_active,
-                progress_percentage=round(
-                    sum(x.progress_percentage for x in enrollments) / len(enrollments)
-                )
-                if enrollments
-                else 0,
-                enrollment_count=len(enrollments),
+                progress_percentage=average_progress,
+                enrollment_count=enrollment_count,
                 batch_id=str(batch.id) if batch else None,
                 batch_name=batch.name if batch else None,
                 section_id=str(section.id) if section else None,
@@ -469,11 +487,12 @@ def dashboard(
         )
         or 0
     )
-    enrollments = list(
-        db.scalars(
-            select(CourseEnrollment).where(CourseEnrollment.user_id.in_(student_ids))
-        )
-    )
+    enrollment_summary = db.execute(
+        select(func.count(CourseEnrollment.id), func.avg(CourseEnrollment.progress_percentage))
+        .join(Course, Course.id == CourseEnrollment.course_id)
+        .where(CourseEnrollment.user_id.in_(student_ids))
+        .where(Course.access_type == "college_allocated")
+    ).one()
     certificates = (
         db.scalar(
             select(func.count(Certificate.id)).where(
@@ -489,8 +508,10 @@ def dashboard(
                 CourseEnrollment,
                 CourseEnrollment.id == AssignmentSubmission.enrollment_id,
             )
+            .join(Course, Course.id == CourseEnrollment.course_id)
             .where(
                 CourseEnrollment.user_id.in_(student_ids),
+                Course.access_type == "college_allocated",
                 AssignmentSubmission.status == "submitted",
             )
         )
@@ -530,11 +551,7 @@ def dashboard(
             )
         )
         or 0,
-        "average_progress": round(
-            sum(x.progress_percentage for x in enrollments) / len(enrollments)
-        )
-        if enrollments
-        else 0,
+        "average_progress": round(float(enrollment_summary[1] or 0)),
         "pending_evaluations": pending,
         "certificates_issued": certificates,
     }
@@ -559,21 +576,49 @@ def update_student(
         ):
             raise HTTPException(422, "Program is not offered by your college")
         student.program_id = payload.program_id
+        if student.college_batch_id:
+            current_batch = db.get(CollegeBatch, student.college_batch_id)
+            if not current_batch or current_batch.program_id != payload.program_id:
+                student.college_batch_id = None
+                student.college_section_id = None
     if payload.current_year is not None:
         student.current_year = payload.current_year.strip()
     if "college_batch_id" in payload.model_fields_set:
         if payload.college_batch_id:
             batch = db.get(CollegeBatch, payload.college_batch_id)
-            if not batch or batch.college_id != admin.college_id:
+            if (
+                not batch
+                or batch.college_id != admin.college_id
+                or batch.program_id != student.program_id
+                or not batch.is_active
+            ):
                 raise HTTPException(422, "Invalid college batch")
+            assigned = db.scalar(
+                select(func.count(StudentProfile.id)).where(
+                    StudentProfile.college_batch_id == batch.id,
+                    StudentProfile.id != student.id,
+                )
+            ) or 0
+            if assigned >= batch.capacity:
+                raise HTTPException(422, "Selected batch has reached its capacity")
             student.college_batch_id = batch.id
+            if student.college_section_id:
+                current_section = db.get(CollegeSection, student.college_section_id)
+                if not current_section or current_section.batch_id != batch.id:
+                    student.college_section_id = None
         else:
             student.college_batch_id = None
             student.college_section_id = None
     if "college_section_id" in payload.model_fields_set:
         if payload.college_section_id:
             section = db.get(CollegeSection, payload.college_section_id)
-            if not section or section.batch.college_id != admin.college_id:
+            if (
+                not section
+                or section.batch.college_id != admin.college_id
+                or section.batch.program_id != student.program_id
+                or not section.is_active
+                or not section.batch.is_active
+            ):
                 raise HTTPException(422, "Invalid college section")
             if (
                 student.college_batch_id
@@ -582,6 +627,15 @@ def update_student(
                 raise HTTPException(
                     422, "Section does not belong to the selected batch"
                 )
+            assigned = db.scalar(
+                select(func.count(StudentProfile.id)).where(
+                    StudentProfile.college_section_id == section.id,
+                    StudentProfile.id != student.id,
+                )
+            ) or 0
+            if assigned >= section.capacity:
+                raise HTTPException(422, "Selected section has reached its capacity")
+            student.college_batch_id = section.batch_id
             student.college_section_id = section.id
         else:
             student.college_section_id = None
@@ -630,7 +684,15 @@ async def import_students(
         try:
             email = row["email"].strip().lower()
             mobile = row["mobile"].strip()
+            full_name = " ".join(row["full_name"].split())
+            current_year = row["current_year"].strip()
             program_id = uuid.UUID(row["program_id"].strip())
+            if len(full_name) < 2:
+                raise ValueError("full_name must contain at least 2 characters")
+            if not re.fullmatch(r"[6-9]\d{9}", mobile):
+                raise ValueError("mobile must be a valid 10-digit Indian mobile number")
+            if not current_year:
+                raise ValueError("current_year is required")
             if len(row["password"]) < 8:
                 raise ValueError("password must contain at least 8 characters")
             if db.scalar(
@@ -656,12 +718,38 @@ async def import_students(
             )
             if batch_id:
                 batch = db.get(CollegeBatch, batch_id)
-                if not batch or batch.college_id != admin.college_id:
+                if (
+                    not batch
+                    or batch.college_id != admin.college_id
+                    or batch.program_id != program_id
+                    or not batch.is_active
+                ):
                     raise ValueError("invalid batch")
+                assigned = db.scalar(
+                    select(func.count(StudentProfile.id)).where(
+                        StudentProfile.college_batch_id == batch.id
+                    )
+                ) or 0
+                if assigned >= batch.capacity:
+                    raise ValueError("batch capacity reached")
             if section_id:
                 section = db.get(CollegeSection, section_id)
-                if not section or section.batch.college_id != admin.college_id:
+                if (
+                    not section
+                    or section.batch.college_id != admin.college_id
+                    or section.batch.program_id != program_id
+                    or not section.is_active
+                    or (batch_id and section.batch_id != batch_id)
+                ):
                     raise ValueError("invalid section")
+                assigned = db.scalar(
+                    select(func.count(StudentProfile.id)).where(
+                        StudentProfile.college_section_id == section.id
+                    )
+                ) or 0
+                if assigned >= section.capacity:
+                    raise ValueError("section capacity reached")
+                batch_id = section.batch_id
             user = User(
                 email=email,
                 mobile=mobile,
@@ -676,8 +764,8 @@ async def import_students(
                     user_id=user.id,
                     college_id=admin.college_id,
                     program_id=program_id,
-                    full_name=" ".join(row["full_name"].split()),
-                    current_year=row["current_year"].strip(),
+                    full_name=full_name,
+                    current_year=current_year,
                     roll_number=(row.get("roll_number") or "").strip() or None,
                     college_batch_id=batch_id,
                     college_section_id=section_id,
@@ -746,6 +834,7 @@ def complete_password_reset(
         raise HTTPException(422, "Password reset token is invalid or expired")
     user = db.get(User, item.user_id)
     user.password_hash = hash_password(payload.new_password)
+    user.credentials_version += 1
     item.used_at = now
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)
@@ -771,6 +860,10 @@ def enroll_student(
             CollegeCourseAllocation.course_id == course_id,
             CollegeCourseAllocation.program_id == student.program_id,
             CollegeCourseAllocation.is_active.is_(True),
+            or_(
+                CollegeCourseAllocation.batch_id.is_(None),
+                CollegeCourseAllocation.batch_id == student.college_batch_id,
+            ),
         )
     )
     if not course or course.status != "published" or not allocation:
@@ -815,15 +908,25 @@ def list_student_enrollments(
             select(CourseEnrollment).where(CourseEnrollment.user_id == student.user_id)
         )
     )
-    allocated = list(
+    allocation_rows = list(
         db.scalars(
             select(CollegeCourseAllocation).where(
                 CollegeCourseAllocation.college_id == admin.college_id,
                 CollegeCourseAllocation.program_id == student.program_id,
                 CollegeCourseAllocation.is_active.is_(True),
+                or_(
+                    CollegeCourseAllocation.batch_id.is_(None),
+                    CollegeCourseAllocation.batch_id == student.college_batch_id,
+                ),
             )
         )
     )
+    allocated_by_course = {}
+    for allocation in allocation_rows:
+        current = allocated_by_course.get(allocation.course_id)
+        if current is None or allocation.batch_id == student.college_batch_id:
+            allocated_by_course[allocation.course_id] = allocation
+    allocated = list(allocated_by_course.values())
     by_course = {row.course_id: row for row in rows}
     return [
         {
@@ -843,6 +946,90 @@ def list_student_enrollments(
     ]
 
 
+@router.get("/students/{student_id}/progress")
+def student_progress_detail(
+    student_id: uuid.UUID,
+    admin: User = Depends(get_current_college_admin),
+    db: Session = Depends(get_db),
+):
+    student = db.get(StudentProfile, student_id)
+    if not student or student.college_id != admin.college_id:
+        raise HTTPException(404, "Student not found")
+
+    enrollments = list(db.scalars(
+        select(CourseEnrollment).where(CourseEnrollment.user_id == student.user_id)
+        .options(
+            selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons),
+            selectinload(CourseEnrollment.lesson_progress),
+        ).order_by(CourseEnrollment.enrolled_at.desc())
+    ))
+    enrollment_ids = [item.id for item in enrollments]
+
+    quiz_attempts = list(db.scalars(
+        select(StudentQuizAttempt).where(StudentQuizAttempt.enrollment_id.in_(enrollment_ids), StudentQuizAttempt.status == "submitted")
+    )) if enrollment_ids else []
+    quiz_lesson_by_id = {row.id: row.lesson_id for row in db.scalars(
+        select(Quiz).where(Quiz.id.in_({attempt.quiz_id for attempt in quiz_attempts})))} if quiz_attempts else {}
+    best_quiz_by_lesson: dict[uuid.UUID, StudentQuizAttempt] = {}
+    for attempt in quiz_attempts:
+        key = quiz_lesson_by_id.get(attempt.quiz_id)
+        if not key:
+            continue
+        current = best_quiz_by_lesson.get(key)
+        if not current or attempt.percentage > current.percentage:
+            best_quiz_by_lesson[key] = attempt
+
+    submissions = list(db.scalars(
+        select(AssignmentSubmission).where(AssignmentSubmission.enrollment_id.in_(enrollment_ids), AssignmentSubmission.status != "draft")
+        .options(selectinload(AssignmentSubmission.assignment).selectinload(Assignment.lesson), selectinload(AssignmentSubmission.evaluations))
+    )) if enrollment_ids else []
+    latest_submission_by_lesson: dict[uuid.UUID, AssignmentSubmission] = {}
+    for submission in submissions:
+        key = submission.assignment.lesson_id
+        current = latest_submission_by_lesson.get(key)
+        if not current or submission.attempt_number > current.attempt_number:
+            latest_submission_by_lesson[key] = submission
+
+    coding_submissions = list(db.scalars(
+        select(StudentCodingSubmission).where(StudentCodingSubmission.enrollment_id.in_(enrollment_ids))
+        .options(selectinload(StudentCodingSubmission.coding_test).selectinload(CodingTest.lesson))
+    )) if enrollment_ids else []
+    coding_by_lesson: dict[uuid.UUID, list[StudentCodingSubmission]] = {}
+    for submission in coding_submissions:
+        coding_by_lesson.setdefault(submission.coding_test.lesson_id, []).append(submission)
+
+    courses = []
+    for enrollment in enrollments:
+        progress_by_lesson = {item.lesson_id: item for item in enrollment.lesson_progress}
+        lessons = []
+        for section in enrollment.course.sections:
+            for lesson in section.lessons:
+                entry = {"lesson_id": lesson.id, "title": lesson.title, "lesson_type": lesson.lesson_type,
+                    "section_title": section.title, "status": progress_by_lesson[lesson.id].status
+                        if lesson.id in progress_by_lesson else "not_started"}
+                if lesson.lesson_type == "quiz" and lesson.id in best_quiz_by_lesson:
+                    attempt = best_quiz_by_lesson[lesson.id]
+                    entry["quiz_best_percentage"] = attempt.percentage
+                    entry["quiz_passed"] = attempt.passed
+                if lesson.lesson_type == "assignment" and lesson.id in latest_submission_by_lesson:
+                    submission = latest_submission_by_lesson[lesson.id]
+                    entry["assignment_status"] = submission.status
+                    if submission.evaluations:
+                        entry["assignment_marks_awarded"] = submission.evaluations[-1].marks_awarded
+                if lesson.lesson_type == "coding_test" and lesson.id in coding_by_lesson:
+                    rows = coding_by_lesson[lesson.id]
+                    entry["coding_passed"] = any(r.passed for r in rows)
+                    entry["coding_attempts_used"] = len(rows)
+                lessons.append(entry)
+        courses.append({"enrollment_id": enrollment.id, "course_id": enrollment.course_id,
+            "course_title": enrollment.course.title, "access_type": enrollment.course.access_type,
+            "college_managed": enrollment.course.access_type == "college_allocated", "status": enrollment.status,
+            "progress_percentage": enrollment.progress_percentage, "enrolled_at": enrollment.enrolled_at,
+            "lessons": lessons})
+
+    return {"student_id": student.id, "student_name": student.full_name, "courses": courses}
+
+
 @router.patch("/students/{student_id}/enrollments/{enrollment_id}")
 def set_enrollment_status(
     student_id: uuid.UUID,
@@ -860,6 +1047,8 @@ def set_enrollment_status(
         or item.user_id != student.user_id
     ):
         raise HTTPException(404, "Enrollment not found")
+    if item.course.access_type != "college_allocated":
+        raise HTTPException(403, "Optional self-learning enrollments are read-only for college admins")
     if active:
         item.status = item.previous_status or "enrolled"
         item.previous_status = None
@@ -1052,8 +1241,10 @@ def add_section(
         raise HTTPException(404, "Batch not found")
     if payload.coordinator_faculty_id:
         faculty = db.get(CollegeFaculty, payload.coordinator_faculty_id)
-        if not faculty or faculty.college_id != admin.college_id:
+        if not faculty or faculty.college_id != admin.college_id or not faculty.is_active:
             raise HTTPException(422, "Invalid faculty coordinator")
+    if payload.capacity > batch.capacity:
+        raise HTTPException(422, "Section capacity cannot exceed batch capacity")
     item = CollegeSection(batch_id=batch.id, **payload.model_dump())
     db.add(item)
     db.flush()
@@ -1069,7 +1260,10 @@ def allocations(
     catalog = [
         {"id": c.id, "title": c.title, "level": c.level}
         for c in db.scalars(
-            select(Course).where(Course.status == "published").order_by(Course.title)
+            select(Course).where(
+                Course.status == "published",
+                Course.access_type == "college_allocated",
+            ).order_by(Course.title)
         )
     ]
     items = list(
@@ -1104,7 +1298,7 @@ def allocate(
     db: Session = Depends(get_db),
 ):
     course = db.get(Course, payload.course_id)
-    if not course or course.status != "published":
+    if not course or course.status != "published" or course.access_type != "college_allocated":
         raise HTTPException(422, "Only published LMS courses can be allocated")
     if not db.scalar(
         select(CollegeProgram).where(
@@ -1119,8 +1313,10 @@ def allocate(
     ):
         if item_id:
             item = db.get(model, item_id)
-            if not item or item.college_id != admin.college_id:
+            if not item or item.college_id != admin.college_id or not item.is_active:
                 raise HTTPException(422, f"Invalid college {label}")
+            if isinstance(item, CollegeBatch) and item.program_id != payload.program_id:
+                raise HTTPException(422, "Batch does not belong to the selected program")
     item = db.scalar(
         select(CollegeCourseAllocation).where(
             CollegeCourseAllocation.college_id == admin.college_id,
@@ -1166,6 +1362,19 @@ def restore_allocation(
     item = db.get(CollegeCourseAllocation, allocation_id)
     if not item or item.college_id != admin.college_id:
         raise HTTPException(404, "Allocation not found")
+    if item.course.status != "published":
+        raise HTTPException(422, "Course is no longer published")
+    if not db.scalar(
+        select(CollegeProgram.id).where(
+            CollegeProgram.college_id == admin.college_id,
+            CollegeProgram.program_id == item.program_id,
+        )
+    ):
+        raise HTTPException(422, "Program is no longer offered by your college")
+    if item.batch and (not item.batch.is_active or item.batch.program_id != item.program_id):
+        raise HTTPException(422, "Allocation batch is inactive or belongs to another program")
+    if item.faculty and not item.faculty.is_active:
+        raise HTTPException(422, "Allocation faculty is inactive")
     item.is_active = True
     _audit(db, admin, "course.allocation_restored", "course_allocation", allocation_id)
     db.commit()
@@ -1178,54 +1387,89 @@ def progress(
 ):
     students = list(
         db.scalars(
-            select(StudentProfile).where(StudentProfile.college_id == admin.college_id)
+            select(StudentProfile)
+            .options(selectinload(StudentProfile.user), selectinload(StudentProfile.program))
+            .where(StudentProfile.college_id == admin.college_id)
+            .order_by(StudentProfile.full_name)
         )
     )
+    user_ids = [student.user_id for student in students]
+    enrollment_stats = {
+        user_id: {
+            "enrollments": int(enrollments or 0),
+            "completed": int(completed or 0),
+            "average_progress": round(float(average or 0)),
+        }
+        for user_id, enrollments, completed, average in db.execute(
+            select(
+                CourseEnrollment.user_id,
+                func.count(CourseEnrollment.id),
+                func.sum(
+                    case((CourseEnrollment.status == "completed", 1), else_=0)
+                ),
+                func.avg(CourseEnrollment.progress_percentage),
+            )
+            .where(CourseEnrollment.user_id.in_(user_ids))
+            .where(CourseEnrollment.status.in_(ACTIVE_ENROLLMENT_STATUSES))
+            .join(Course, Course.id == CourseEnrollment.course_id)
+            .where(Course.access_type == "college_allocated")
+            .group_by(CourseEnrollment.user_id)
+        )
+    } if user_ids else {}
+    evaluation_stats = {
+        user_id: int(total)
+        for user_id, total in db.execute(
+            select(CourseEnrollment.user_id, func.count(AssignmentSubmission.id))
+            .join(
+                AssignmentSubmission,
+                AssignmentSubmission.enrollment_id == CourseEnrollment.id,
+            )
+            .join(Course, Course.id == CourseEnrollment.course_id)
+            .where(
+                CourseEnrollment.user_id.in_(user_ids),
+                CourseEnrollment.status.in_(ACTIVE_ENROLLMENT_STATUSES),
+                Course.access_type == "college_allocated",
+                AssignmentSubmission.status == "evaluated",
+            )
+            .group_by(CourseEnrollment.user_id)
+        )
+    } if user_ids else {}
+    batch_ids = {student.college_batch_id for student in students if student.college_batch_id}
+    section_ids = {student.college_section_id for student in students if student.college_section_id}
+    batches = {
+        item.id: item.name
+        for item in db.scalars(select(CollegeBatch).where(CollegeBatch.id.in_(batch_ids)))
+    } if batch_ids else {}
+    sections = {
+        item.id: item.name
+        for item in db.scalars(select(CollegeSection).where(CollegeSection.id.in_(section_ids)))
+    } if section_ids else {}
     result = []
     for student in students:
-        rows = list(
-            db.scalars(
-                select(CourseEnrollment).where(
-                    CourseEnrollment.user_id == student.user_id
-                )
-            )
+        stats = enrollment_stats.get(
+            student.user_id,
+            {"enrollments": 0, "completed": 0, "average_progress": 0},
         )
-        average = (
-            round(sum(x.progress_percentage for x in rows) / len(rows)) if rows else 0
-        )
-        evaluations = (
-            db.scalar(
-                select(func.count(AssignmentSubmission.id))
-                .join(
-                    CourseEnrollment,
-                    CourseEnrollment.id == AssignmentSubmission.enrollment_id,
-                )
-                .where(
-                    CourseEnrollment.user_id == student.user_id,
-                    AssignmentSubmission.status == "evaluated",
-                )
-            )
-            or 0
-        )
+        average = stats["average_progress"]
         result.append(
             {
                 "student_id": student.id,
                 "student_name": student.full_name,
+                "student_email": student.user.email,
+                "roll_number": student.roll_number,
+                "current_year": student.current_year,
+                "is_active": student.user.is_active,
                 "program_id": student.program_id,
                 "program_name": student.program.name,
                 "batch_id": student.college_batch_id,
-                "batch_name": db.get(CollegeBatch, student.college_batch_id).name
-                if student.college_batch_id
-                else None,
+                "batch_name": batches.get(student.college_batch_id),
                 "section_id": student.college_section_id,
-                "section_name": db.get(CollegeSection, student.college_section_id).name
-                if student.college_section_id
-                else None,
-                "enrollments": len(rows),
-                "completed": sum(x.status == "completed" for x in rows),
+                "section_name": sections.get(student.college_section_id),
+                "enrollments": stats["enrollments"],
+                "completed": stats["completed"],
                 "average_progress": average,
-                "at_risk": bool(rows and average < 40),
-                "evaluations_completed": evaluations,
+                "at_risk": bool(stats["enrollments"] and average < 40),
+                "evaluations_completed": evaluation_stats.get(student.user_id, 0),
             }
         )
     groups = {}
@@ -1257,10 +1501,23 @@ def progress(
             group.pop("total_progress") / group["students"]
         )
         grouped.append(group)
+    active_progress = [x["average_progress"] for x in result if x["enrollments"]]
     return {
         "students": result,
         "groups": grouped,
         "at_risk_count": sum(x["at_risk"] for x in result),
+        "summary": {
+            "total_students": len(result),
+            "students_with_enrollments": len(active_progress),
+            "completed_students": sum(
+                bool(x["enrollments"] and x["completed"] == x["enrollments"])
+                for x in result
+            ),
+            "average_progress": round(sum(active_progress) / len(active_progress))
+            if active_progress
+            else 0,
+            "at_risk_count": sum(x["at_risk"] for x in result),
+        },
     }
 
 
@@ -1287,9 +1544,10 @@ def college_certificates(
     ]
     eligible = []
     for x in db.scalars(
-        select(CourseEnrollment).where(
+        select(CourseEnrollment).join(Course, Course.id == CourseEnrollment.course_id).where(
             CourseEnrollment.user_id.in_(student_ids),
             CourseEnrollment.status == "completed",
+            Course.access_type == "college_allocated",
         )
     ):
         if not db.scalar(select(Certificate).where(Certificate.enrollment_id == x.id)):
@@ -1320,6 +1578,7 @@ def request_certificate(
         not enrollment
         or enrollment.user.student_profile.college_id != admin.college_id
         or enrollment.status != "completed"
+        or enrollment.course.access_type != "college_allocated"
     ):
         raise HTTPException(422, "Student is not eligible for this certificate")
     item = db.scalar(
@@ -1408,8 +1667,9 @@ def _report_rows(
         ]
     elif kind in {"enrollments", "course-completion"}:
         headers = ["Student", "Course", "Status", "Progress", "Enrolled At"]
-        query = select(CourseEnrollment).where(
-            CourseEnrollment.user_id.in_(student_ids)
+        query = select(CourseEnrollment).join(Course, Course.id == CourseEnrollment.course_id).where(
+            CourseEnrollment.user_id.in_(student_ids),
+            Course.access_type == "college_allocated",
         )
         if kind == "course-completion":
             query = query.where(CourseEnrollment.status == "completed")
@@ -1432,7 +1692,11 @@ def _report_rows(
                 CourseEnrollment,
                 CourseEnrollment.id == StudentQuizAttempt.enrollment_id,
             )
-            .where(CourseEnrollment.user_id.in_(student_ids))
+            .join(Course, Course.id == CourseEnrollment.course_id)
+            .where(
+                CourseEnrollment.user_id.in_(student_ids),
+                Course.access_type == "college_allocated",
+            )
             .order_by(StudentQuizAttempt.started_at.desc())
         ):
             enrollment = db.get(CourseEnrollment, x.enrollment_id)

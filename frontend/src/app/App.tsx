@@ -15,23 +15,14 @@ const CollegeRegister = lazy(() =>
 const StudentCareerPortal = lazy(() =>
   import("../components/student-career-portal").then((m) => ({ default: m.StudentCareerPortal })),
 );
-const FSDPage = lazy(() =>
-  import("../components/fsd").then((m) => ({ default: m.FSDPage })),
-);
 const LMSAdminSection = lazy(() =>
   import("../components/lms-admin").then((m) => ({ default: m.LMSAdminSection })),
 );
 const InstitutionManagement = lazy(() =>
   import("../components/institution-management").then((m) => ({ default: m.InstitutionManagement })),
 );
-const ProjectPromptPage = lazy(() =>
-  import("../components/project-prompt").then((m) => ({ default: m.ProjectPromptPage })),
-);
 const LMSModule = lazy(() =>
   import("../components/lms").then((m) => ({ default: m.LMSModule })),
-);
-const SRSPage = lazy(() =>
-  import("../components/srs").then((m) => ({ default: m.SRSPage })),
 );
 
 function PageLoader() {
@@ -61,28 +52,24 @@ type Mode =
   | "home"
   | "college"
   | "student"
-  | "fsd"
-  | "srs"
   | "student-login"
   | "admin-login"
   | "student-register"
   | "college-admin"
-  | "project-prompt"
   | "lms"
-  | "admin-lms";
+  | "admin-lms"
+  | "not-found";
 const MODE_PATH: Record<Mode, string> = {
   home: "/",
   college: "/college",
   student: "/student/dashboard",
-  fsd: "/programs/full-stack-development",
-  srs: "/resources/software-requirements",
   "student-login": "/student/login",
   "admin-login": "/admin/login",
   "student-register": "/student/register",
   "college-admin": "/college-admin/dashboard",
-  "project-prompt": "/resources/project-prompt",
   lms: "/lms/dashboard",
   "admin-lms": "/admin/dashboard",
+  "not-found": "/404",
 };
 function modeFromPath(pathname: string): Mode {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
@@ -96,13 +83,32 @@ function modeFromPath(pathname: string): Mode {
     ([, route]) => route === path,
   )?.[0];
   if (exact) return exact;
-  if (path.startsWith("/student/")) return "student";
-  if (path === "/admin" || path.startsWith("/admin/")) return "admin-lms";
-  if (path.startsWith("/college-admin")) return "college-admin";
-  if (path.startsWith("/super-admin")) return "admin-lms";
-  if (path.startsWith("/lms")) return "lms";
+  const studentRoutes = new Set([
+    "/student/dashboard", "/student/skills", "/student/career-goal",
+    "/student/upload-resume", "/student/ats-resume", "/student/roadmap",
+    "/student/certificates",
+  ]);
+  const collegeAdminRoutes = new Set([
+    "/college-admin", "/college-admin/dashboard", "/college-admin/profile",
+    "/college-admin/programs", "/college-admin/students", "/college-admin/batches",
+    "/college-admin/faculty", "/college-admin/courses", "/college-admin/progress",
+    "/college-admin/certificates", "/college-admin/reports",
+  ]);
+  const lmsRoutes = new Set([
+    "/lms/dashboard", "/lms/my-courses", "/lms/catalog", "/lms/assignments",
+    "/lms/progress", "/lms/certificates",
+  ]);
+  const adminRoutes = new Set([
+    "/admin", "/admin/dashboard", "/admin/courses", "/admin/courses/new",
+    "/admin/submissions", "/admin/certificates", "/admin/institution",
+    "/admin/college-requests", "/super-admin",
+  ]);
+  if (studentRoutes.has(path)) return "student";
+  if (collegeAdminRoutes.has(path)) return "college-admin";
+  if (lmsRoutes.has(path) || /^\/lms\/courses\/[^/]+$/.test(path)) return "lms";
+  if (adminRoutes.has(path) || /^\/admin\/courses\/[^/]+$/.test(path)) return "admin-lms";
   if (path.startsWith("/college")) return "college";
-  return "home";
+  return path === "/" ? "home" : "not-found";
 }
 
 export default function App() {
@@ -154,15 +160,13 @@ function AppInner() {
       home: "Home",
       college: "Register Institution",
       student: "Student Portal",
-      fsd: "Full Stack Development",
-      srs: "Software Requirements",
       "student-login": "Student Login",
       "admin-login": "Admin Login",
       "student-register": "Student Registration",
       "college-admin": "College Admin",
-      "project-prompt": "Project Prompt",
       lms: "Learning Management",
       "admin-lms": "Admin LMS",
+      "not-found": "Page not found",
     };
     if (mode !== "student" && mode !== "admin-lms")
       document.title = `${labels[mode]} | EduConnect`;
@@ -194,17 +198,6 @@ function AppInner() {
       />
     );
   }
-  if (mode === "project-prompt")
-    return <ProjectPromptPage onBack={() => navigate("home")} />;
-  if (mode === "srs") return <SRSPage onBack={() => navigate("fsd")} />;
-  if (mode === "fsd")
-    return (
-      <FSDPage
-        onBack={() => navigate("home")}
-        onPrompt={() => navigate("project-prompt")}
-        onSRS={() => navigate("srs")}
-      />
-    );
   if (mode === "student-login")
     return (
       <StudentLogin
@@ -213,6 +206,8 @@ function AppInner() {
         onSuccess={() => navigate("student")}
       />
     );
+  if (mode === "not-found")
+    return <div className="min-h-screen grid place-items-center bg-[#F2F5FC] px-5"><div className="max-w-md text-center"><p className="text-[12px] font-bold uppercase tracking-widest text-[#9AA5BE]">404</p><h1 className="mt-3 text-[32px] font-bold text-[#0F1C3F]">Page not found</h1><p className="mt-3 text-[14px] leading-6 text-[#5A6A8A]">This address is not part of your EduConnect workspace.</p><button onClick={() => navigate("home")} className="mt-6 rounded-xl bg-[#1B3A6B] px-5 py-3 text-[14px] font-semibold text-white">Return home</button></div></div>;
   if (mode === "admin-login")
     return (
       <AdminLogin
@@ -248,12 +243,9 @@ function AppInner() {
     return (
       <HomePage
         onCollege={() => navigate("college")}
-        onStudent={() => navigate("student")}
-        onFSD={() => navigate("fsd")}
         onStudentLogin={() => navigate("student-login")}
         onAdminLogin={() => navigate("admin-login")}
         onStudentRegister={() => navigate("student-register")}
-        onLMS={() => navigate("lms")}
       />
     );
   if (mode === "student") {

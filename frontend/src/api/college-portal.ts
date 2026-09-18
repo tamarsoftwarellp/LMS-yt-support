@@ -33,6 +33,7 @@ export interface InstitutionStudent {
   full_name: string;
   email: string;
   mobile: string;
+  program_id: string;
   program_name: string;
   current_year: string;
   roll_number: string | null;
@@ -102,8 +103,15 @@ export interface CourseAllocationData {
 export interface CollegeProgress {
   student_id: string;
   student_name: string;
+  student_email: string;
+  roll_number?: string | null;
+  current_year: string;
+  is_active: boolean;
+  program_id: string;
   program_name: string;
+  batch_id?: string | null;
   batch_name?: string | null;
+  section_id?: string | null;
   section_name?: string | null;
   enrollments: number;
   completed: number;
@@ -122,6 +130,42 @@ export interface CollegeProgressData {
     average_progress: number;
   }[];
   at_risk_count: number;
+  summary: {
+    total_students: number;
+    students_with_enrollments: number;
+    completed_students: number;
+    average_progress: number;
+    at_risk_count: number;
+  };
+}
+export interface StudentProgressLesson {
+  lesson_id: string;
+  title: string;
+  lesson_type: "video" | "article" | "quiz" | "assignment" | "coding_test";
+  section_title: string;
+  status: string;
+  quiz_best_percentage?: number;
+  quiz_passed?: boolean;
+  assignment_status?: string;
+  assignment_marks_awarded?: number;
+  coding_passed?: boolean;
+  coding_attempts_used?: number;
+}
+export interface StudentProgressCourse {
+  enrollment_id: string;
+  course_id: string;
+  course_title: string;
+  access_type: "college_allocated" | "open_elective";
+  college_managed: boolean;
+  status: string;
+  progress_percentage: number;
+  enrolled_at: string;
+  lessons: StudentProgressLesson[];
+}
+export interface StudentProgressDetail {
+  student_id: string;
+  student_name: string;
+  courses: StudentProgressCourse[];
 }
 export interface CollegeCertificates {
   issued: {
@@ -278,6 +322,8 @@ export const restoreCourseAllocation = (id: string) =>
   );
 export const loadCollegeProgress = () =>
   adminApiRequest<CollegeProgressData>("/api/v1/admin/institution/progress");
+export const loadStudentProgressDetail = (studentId: string) =>
+  adminApiRequest<StudentProgressDetail>(`/api/v1/admin/institution/students/${studentId}/progress`);
 export const loadCollegeCertificates = () =>
   adminApiRequest<CollegeCertificates>(
     "/api/v1/admin/institution/certificates",

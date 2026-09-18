@@ -12,10 +12,15 @@ from ..schemas.career import CareerGoalInput, CareerGoalOut, SkillInput, SkillOu
 from ..config import get_settings
 from ..database import get_db
 from ..dependencies import get_current_student
-from ..models import CareerGoal, Course, CourseEnrollment, CourseLesson, CourseSection, LessonProgress, Skill, StudentLearningActivity, StudentResume, StudentRoadmap, StudentSkill, User
+from ..models import CareerGoal, CollegeCourseAllocation, Course, CourseEnrollment, CourseLesson, CourseSection, LessonProgress, Skill, StudentLearningActivity, StudentProfile, StudentResume, StudentRoadmap, StudentSkill, User
 from ..services.resume import evaluate_uploaded_resume, extract_resume_text, parse_resume_data
 from ..services.resume_builder import sync_uploaded_resume_to_builder
 from ..services.roadmap import PROMPT_VERSION, generate_roadmap
+from ..services.enrollment import (
+    ACTIVE_ENROLLMENT_STATUSES,
+    get_active_enrollment,
+    get_active_enrollment_by_id,
+)
 
 
 router = APIRouter(prefix="/api/v1/students/me", tags=["Student Career Journey"])
@@ -198,7 +203,20 @@ def create_roadmap(user: User = Depends(get_current_student), db: Session = Depe
     }
     draft, model_name = generate_roadmap(snapshot)
     phases = [phase.model_dump() for phase in draft.phases]
-    courses = list(db.scalars(select(Course).where(Course.status == "published")))
+    profile = db.scalar(select(StudentProfile).where(StudentProfile.user_id == user.id))
+    allocation_course_ids = select(CollegeCourseAllocation.course_id).where(
+        CollegeCourseAllocation.college_id == profile.college_id,
+        CollegeCourseAllocation.program_id == profile.program_id,
+        CollegeCourseAllocation.is_active.is_(True),
+        or_(
+            CollegeCourseAllocation.batch_id.is_(None),
+            CollegeCourseAllocation.batch_id == profile.college_batch_id,
+        ),
+    )
+    courses = list(db.scalars(select(Course).where(
+        Course.status == "published",
+        or_(Course.access_type == "open_elective", Course.id.in_(allocation_course_ids)),
+    )))
     recommendations = match_courses(phases, courses)
     version = (db.scalar(select(func.max(StudentRoadmap.version)).where(StudentRoadmap.user_id == user.id)) or 0) + 1
     roadmap = StudentRoadmap(user_id=user.id, career_goal_id=goal.id, resume_id=resume.id if resume else None,
@@ -238,6 +256,8 @@ def _catalog_item(course: Course, enrollment: CourseEnrollment | None, enrollmen
         "id": course.id, "title": course.title, "slug": course.slug, "description": course.description,
         "level": course.level, "duration_hours": course.duration_hours, "skills": course.skills,
         "thumbnail_url": course.thumbnail_url, "instructor_name": course.instructor_name,
+        "access_type": course.access_type,
+        "catalog_label": "Optional self-learning" if course.access_type == "open_elective" else "College course",
         "enrollment_count": enrollment_count,
         "is_enrolled": enrollment is not None,
         "enrollment_id": str(enrollment.id) if enrollment else None,
@@ -252,20 +272,41 @@ def course_catalog(
     user: User = Depends(get_current_student),
     db: Session = Depends(get_db),
 ):
-    query = select(Course).where(Course.status == "published")
+    profile = db.scalar(select(StudentProfile).where(StudentProfile.user_id == user.id))
+    if not profile:
+        raise HTTPException(status_code=403, detail="Student profile is unavailable")
+    allocation_course_ids = select(CollegeCourseAllocation.course_id).where(
+        CollegeCourseAllocation.college_id == profile.college_id,
+        CollegeCourseAllocation.program_id == profile.program_id,
+        CollegeCourseAllocation.is_active.is_(True),
+        or_(
+            CollegeCourseAllocation.batch_id.is_(None),
+            CollegeCourseAllocation.batch_id == profile.college_batch_id,
+        ),
+    )
+    available_condition = or_(
+        Course.access_type == "open_elective",
+        Course.id.in_(allocation_course_ids),
+    )
+    query = select(Course).where(Course.status == "published", available_condition)
     if level:
         query = query.where(Course.level == level)
     if search and search.strip():
         value = f"%{search.strip()}%"
         query = query.where(or_(Course.title.ilike(value), Course.description.ilike(value), Course.instructor_name.ilike(value)))
     courses = list(db.scalars(query.order_by(Course.title)))
-    enrollments = {item.course_id: item for item in db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id))}
+    enrollments = {item.course_id: item for item in db.scalars(select(CourseEnrollment).where(
+        CourseEnrollment.user_id == user.id,
+        CourseEnrollment.status.in_(ACTIVE_ENROLLMENT_STATUSES),
+    ))}
     counts = dict(db.execute(
         select(CourseEnrollment.course_id, func.count(CourseEnrollment.id)).group_by(CourseEnrollment.course_id)
     ).all())
     return {
         "items": [_catalog_item(course, enrollments.get(course.id), counts.get(course.id, 0)) for course in courses],
-        "levels": sorted({course.level for course in db.scalars(select(Course).where(Course.status == "published"))}),
+        "levels": sorted({course.level for course in db.scalars(select(Course).where(
+            Course.status == "published", available_condition
+        ))}),
     }
 
 
@@ -275,9 +316,32 @@ def enroll(course_id: uuid.UUID, roadmap_id: uuid.UUID | None = None,
     course = db.get(Course, course_id)
     if not course or course.status != "published":
         raise HTTPException(status_code=404, detail="Course is not available")
+    profile = db.scalar(select(StudentProfile).where(StudentProfile.user_id == user.id))
+    if not profile:
+        raise HTTPException(status_code=403, detail="Student profile is unavailable")
+    if course.access_type == "college_allocated":
+        allocation = db.scalar(select(CollegeCourseAllocation.id).where(
+            CollegeCourseAllocation.college_id == profile.college_id,
+            CollegeCourseAllocation.course_id == course_id,
+            CollegeCourseAllocation.program_id == profile.program_id,
+            CollegeCourseAllocation.is_active.is_(True),
+            or_(
+                CollegeCourseAllocation.batch_id.is_(None),
+                CollegeCourseAllocation.batch_id == profile.college_batch_id,
+            ),
+        ))
+        if not allocation:
+            raise HTTPException(status_code=403, detail="This course is not allocated to your program or batch")
+    if roadmap_id and not db.scalar(
+        select(StudentRoadmap.id).where(
+            StudentRoadmap.id == roadmap_id, StudentRoadmap.user_id == user.id
+        )
+    ):
+        raise HTTPException(status_code=422, detail="Roadmap does not belong to this student")
     existing = db.scalar(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id, CourseEnrollment.course_id == course_id))
     if existing:
-        raise HTTPException(status_code=409, detail="You are already enrolled in this course")
+        detail = "This enrollment was revoked by your college" if existing.status == "revoked" else "You are already enrolled in this course"
+        raise HTTPException(status_code=409, detail=detail)
     item = CourseEnrollment(user_id=user.id, course_id=course_id, roadmap_id=roadmap_id)
     db.add(item)
     db.commit()
@@ -310,8 +374,7 @@ def enrolled_course(course_id: uuid.UUID, user: User = Depends(get_current_stude
     course = db.get(Course, course_id)
     if not course or course.status != "published":
         raise HTTPException(status_code=404, detail="Course was not found")
-    enrollment = db.scalar(select(CourseEnrollment).where(
-        CourseEnrollment.user_id == user.id, CourseEnrollment.course_id == course_id))
+    enrollment = get_active_enrollment(db, user.id, course_id)
     progress = {item.lesson_id: item for item in enrollment.lesson_progress} if enrollment else {}
     unlocked = bool(enrollment)
     return {"id": course.id, "title": course.title, "description": course.description,
@@ -338,12 +401,11 @@ def enrolled_course(course_id: uuid.UUID, user: User = Depends(get_current_stude
 @router.put("/enrollments/{enrollment_id}/lessons/{lesson_id}/progress")
 def save_lesson_progress(enrollment_id: uuid.UUID, lesson_id: uuid.UUID, payload: LessonProgressInput,
                          user: User = Depends(get_current_student), db: Session = Depends(get_db)):
-    enrollment = db.scalar(select(CourseEnrollment).where(
-        CourseEnrollment.id == enrollment_id, CourseEnrollment.user_id == user.id))
+    enrollment = get_active_enrollment_by_id(db, user.id, enrollment_id)
     lesson = db.get(CourseLesson, lesson_id)
     if not enrollment or not lesson or lesson.section.course_id != enrollment.course_id:
         raise HTTPException(status_code=404, detail="Enrollment lesson was not found")
-    if lesson.lesson_type in {"video", "quiz", "assignment"} and payload.status == "completed":
+    if lesson.lesson_type in {"video", "quiz", "assignment", "coding_test"} and payload.status == "completed":
         raise HTTPException(status_code=422, detail=f"{lesson.lesson_type.title()} lessons cannot be completed manually")
     progress = db.scalar(select(LessonProgress).where(
         LessonProgress.enrollment_id == enrollment.id, LessonProgress.lesson_id == lesson.id))

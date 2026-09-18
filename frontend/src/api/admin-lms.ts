@@ -3,9 +3,11 @@ const API_URL = (
 ).replace(/\/$/, "");
 const ACCESS_KEY = "educonnect_admin_access";
 const REFRESH_KEY = "educonnect_admin_refresh";
+const pendingGets = new Map<string, Promise<unknown>>();
 
 export type CourseStatus = "draft" | "published" | "archived";
-export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding";
+export type CourseAccessType = "college_allocated" | "open_elective";
+export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding_test";
 
 export interface AdminSession {
   access_token: string;
@@ -37,6 +39,7 @@ export interface AdminCourseListItem {
   duration_hours: number;
   skills: string[];
   status: CourseStatus;
+  access_type: CourseAccessType;
   thumbnail_url?: string | null;
   instructor_name?: string | null;
   created_by_user_id?: string | null;
@@ -99,6 +102,7 @@ export interface CourseInput {
   duration_hours: number;
   skills: string[];
   status?: CourseStatus;
+  access_type: CourseAccessType;
   thumbnail_url?: string | null;
   instructor_name?: string | null;
 }
@@ -111,6 +115,7 @@ export interface CourseUpdateInput {
   duration_hours?: number;
   skills?: string[];
   status?: CourseStatus;
+  access_type?: CourseAccessType;
   thumbnail_url?: string | null;
   instructor_name?: string | null;
 }
@@ -161,21 +166,41 @@ export interface AdminQuiz {
   questions: AdminQuizQuestion[];
 }
 export type AdminQuizInput = Omit<AdminQuiz, "id" | "lesson_id" | "status">;
-export interface AdminCodingTestCase {
-  input: unknown[];
-  expected: unknown;
+export type CodingTestMode = "algorithmic" | "web" | "react";
+export type AlgoLanguage = "python" | "javascript" | "java" | "cpp";
+export interface AdminCodingCheck {
+  target: "html" | "css" | "js" | "jsx";
+  type: "contains" | "not_contains" | "regex";
+  value: string;
+  description?: string | null;
 }
-export interface AdminCoding {
+export interface AdminCodingTestCase {
+  id?: string;
+  sequence?: number;
+  title: string;
+  is_hidden: boolean;
+  weight: number;
+  stdin?: string | null;
+  expected_output?: string | null;
+  checks: AdminCodingCheck[];
+}
+export interface AdminCodingTest {
   id: string;
   lesson_id: string;
-  instructions: string;
-  function_name: string;
-  starter_code: string;
+  mode: CodingTestMode;
+  problem_statement: string;
+  supported_languages: string[];
+  starter_code: Record<string, string>;
   maximum_attempts: number;
+  time_limit_minutes?: number | null;
+  passing_percentage: number;
   status: "draft" | "published";
   test_cases: AdminCodingTestCase[];
 }
-export type AdminCodingInput = Omit<AdminCoding, "id" | "lesson_id" | "status">;
+export type AdminCodingTestInput = Omit<
+  AdminCodingTest,
+  "id" | "lesson_id" | "status"
+>;
 export interface AdminAssignment {
   id: string;
   lesson_id: string;
@@ -327,7 +352,16 @@ async function authorized<T>(
   path: string,
   init?: RequestInit,
   retry = true,
+  dedupe = true,
 ): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  if (method === "GET" && dedupe) {
+    const existing = pendingGets.get(path);
+    if (existing) return existing as Promise<T>;
+    const request = authorized<T>(path, init, retry, false).finally(() => pendingGets.delete(path));
+    pendingGets.set(path, request);
+    return request;
+  }
   let access = sessionStorage.getItem(ACCESS_KEY);
   if (!access) access = await refreshAdminAccessToken();
   const response = await fetch(`${API_URL}${path}`, {
@@ -342,7 +376,7 @@ async function authorized<T>(
   });
   if (response.status === 401 && retry) {
     await refreshAdminAccessToken();
-    return authorized<T>(path, init, false);
+    return authorized<T>(path, init, false, false);
   }
   return parseResponse<T>(response);
 }
@@ -489,18 +523,24 @@ export const publishAdminQuiz = (quizId: string) =>
   adminApiRequest<AdminQuiz>(`/api/v1/admin/quizzes/${quizId}/publish`, {
     method: "POST",
   });
-export const loadAdminCoding = (lessonId: string) =>
-  adminApiRequest<AdminCoding | null>(
-    `/api/v1/admin/lessons/${lessonId}/coding`,
+export const loadAdminCodingTest = (lessonId: string) =>
+  adminApiRequest<AdminCodingTest | null>(
+    `/api/v1/admin/lessons/${lessonId}/coding-test`,
   );
-export const saveAdminCoding = (lessonId: string, payload: AdminCodingInput) =>
-  adminApiRequest<AdminCoding>(`/api/v1/admin/lessons/${lessonId}/coding`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-export const publishAdminCoding = (challengeId: string) =>
-  adminApiRequest<AdminCoding>(
-    `/api/v1/admin/coding-challenges/${challengeId}/publish`,
+export const saveAdminCodingTest = (
+  lessonId: string,
+  payload: AdminCodingTestInput,
+) =>
+  adminApiRequest<AdminCodingTest>(
+    `/api/v1/admin/lessons/${lessonId}/coding-test`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+  );
+export const publishAdminCodingTest = (codingTestId: string) =>
+  adminApiRequest<AdminCodingTest>(
+    `/api/v1/admin/coding-tests/${codingTestId}/publish`,
     { method: "POST" },
   );
 export const loadAdminAssignment = (lessonId: string) =>

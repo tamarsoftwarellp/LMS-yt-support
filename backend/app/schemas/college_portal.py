@@ -38,6 +38,7 @@ class InstitutionStudentOut(BaseModel):
     full_name: str
     email: str
     mobile: str
+    program_id: str
     program_name: str
     current_year: str
     roll_number: str | None

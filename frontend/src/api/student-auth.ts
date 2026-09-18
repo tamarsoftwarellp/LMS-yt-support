@@ -37,6 +37,7 @@ export interface OnboardingProgress {
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const ACCESS_KEY = "educonnect_student_access";
 const REFRESH_KEY = "educonnect_student_refresh";
+const pendingGets = new Map<string, Promise<unknown>>();
 
 async function parse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
@@ -80,7 +81,15 @@ async function refreshAccessToken(): Promise<string> {
   return session.access_token;
 }
 
-async function authorized<T>(path: string, init?: RequestInit, retry = true): Promise<T> {
+async function authorized<T>(path: string, init?: RequestInit, retry = true, dedupe = true): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  if (method === "GET" && dedupe) {
+    const existing = pendingGets.get(path);
+    if (existing) return existing as Promise<T>;
+    const request = authorized<T>(path, init, retry, false).finally(() => pendingGets.delete(path));
+    pendingGets.set(path, request);
+    return request;
+  }
   let access = sessionStorage.getItem(ACCESS_KEY);
   if (!access) access = await refreshAccessToken();
   const response = await fetch(`${API_URL}${path}`, {
@@ -93,7 +102,7 @@ async function authorized<T>(path: string, init?: RequestInit, retry = true): Pr
   });
   if (response.status === 401 && retry) {
     await refreshAccessToken();
-    return authorized<T>(path, init, false);
+    return authorized<T>(path, init, false, false);
   }
   return parse<T>(response);
 }

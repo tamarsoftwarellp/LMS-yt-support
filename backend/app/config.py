@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,8 +21,20 @@ class Settings(BaseSettings):
     college_logo_upload_dir: str = "uploads/college-logos"
     max_assignment_size_mb: int = 50
     public_app_url: str = "http://localhost:5173"
+    piston_api_url: str = "https://emkc.org/api/v2/piston"
+    code_run_timeout_ms: int = 8000
+    max_coding_output_chars: int = 20000
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.environment.lower() == "production" and (
+            self.jwt_secret == "development-only-change-me"
+            or len(self.jwt_secret) < 32
+        ):
+            raise ValueError("Production JWT_SECRET must be a unique value of at least 32 characters")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

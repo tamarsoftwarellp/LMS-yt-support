@@ -20,10 +20,10 @@ def verify_password(password: str, encoded: str) -> bool:
     return password_hash.verify(password, encoded)
 
 
-def create_access_token(user_id: uuid.UUID, role: str) -> tuple[str, int]:
+def create_access_token(user_id: uuid.UUID, role: str, credentials_version: int = 0) -> tuple[str, int]:
     settings = get_settings()
     expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_minutes)
-    token = jwt.encode({"sub": str(user_id), "role": role, "exp": expires, "type": "access"}, settings.jwt_secret, algorithm="HS256")
+    token = jwt.encode({"sub": str(user_id), "role": role, "cv": credentials_version, "exp": expires, "type": "access"}, settings.jwt_secret, algorithm="HS256")
     return token, settings.access_token_minutes * 60
 
 

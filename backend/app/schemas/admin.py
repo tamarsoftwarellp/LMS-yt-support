@@ -5,7 +5,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 CourseStatus = Literal["draft", "published", "archived"]
-LessonType = Literal["video", "article", "quiz", "assignment"]
+CourseAccessType = Literal["college_allocated", "open_elective"]
+LessonType = Literal["video", "article", "quiz", "assignment", "coding_test"]
 
 
 class AdminLoginIn(BaseModel):
@@ -33,6 +34,7 @@ class AdminCourseBase(BaseModel):
     duration_hours: int | None = Field(default=None, gt=0)
     skills: list[str] | None = None
     status: CourseStatus | None = None
+    access_type: CourseAccessType | None = None
     thumbnail_url: str | None = Field(default=None, max_length=500)
     instructor_name: str | None = Field(default=None, max_length=180)
 
@@ -44,6 +46,7 @@ class AdminCourseCreateIn(AdminCourseBase):
     duration_hours: int = Field(gt=0)
     skills: list[str] = Field(default_factory=list)
     status: CourseStatus = "draft"
+    access_type: CourseAccessType = "college_allocated"
 
 
 class AdminCourseUpdateIn(AdminCourseBase):
@@ -110,6 +113,7 @@ class AdminCourseListItem(BaseModel):
     duration_hours: int
     skills: list[str]
     status: CourseStatus
+    access_type: CourseAccessType
     thumbnail_url: str | None
     instructor_name: str | None
     created_by_user_id: uuid.UUID | None

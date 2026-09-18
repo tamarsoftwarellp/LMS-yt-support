@@ -12,15 +12,18 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app
 from app.models import (
+    College,
     CollegeAuditLog,
     CollegeFaculty,
     Course,
     CourseEnrollment,
+    CourseLesson,
+    CourseSection,
     StudentProfile,
     User,
     Program,
 )
-from app.security import hash_password
+from app.security import create_access_token, hash_password
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -583,6 +586,17 @@ def test_college_operations_and_cross_tenant_boundaries():
         ).status_code
         == 200
     )
+    with TestingSession() as db:
+        reset_profile = db.get(StudentProfile, uuid.UUID(student_id))
+        reset_profile.user.is_active = True
+        db.commit()
+        stale_token, _ = create_access_token(
+            reset_profile.user_id,
+            "student",
+            reset_profile.user.credentials_version,
+        )
+    stale_headers = {"Authorization": f"Bearer {stale_token}"}
+    assert client.get("/api/v1/students/me/enrollments", headers=stale_headers).status_code == 200
     reset = client.post(
         f"/api/v1/admin/institution/students/{student_id}/password-reset",
         headers=headers_a,
@@ -593,6 +607,7 @@ def test_college_operations_and_cross_tenant_boundaries():
         json={"token": reset.json()["reset_token"], "new_password": "NewStudent123"},
     )
     assert complete.status_code == 200
+    assert client.get("/api/v1/students/me/enrollments", headers=stale_headers).status_code == 401
     assert (
         client.post(
             "/api/v1/admin/institution/students/password-reset/complete",
@@ -601,8 +616,8 @@ def test_college_operations_and_cross_tenant_boundaries():
         == 422
     )
     csv_data = (
-        "full_name,email,mobile,password,program_id,current_year,roll_number\n"
-        f"Imported Student,imported@tenant.edu,9876510011,Imported123,{program_id},1,IMP-1\n"
+        "full_name,email,mobile,password,program_id,current_year,roll_number,batch_id\n"
+        f"Imported Student,imported@tenant.edu,9876510011,Imported123,{program_id},1,IMP-1,{batch_a}\n"
     )
     imported = client.post(
         "/api/v1/admin/institution/students/import",
@@ -658,6 +673,19 @@ def test_college_operations_and_cross_tenant_boundaries():
     )
     progress = client.get("/api/v1/admin/institution/progress", headers=headers_a)
     assert progress.status_code == 200 and "groups" in progress.json()
+    assert (
+        client.get(
+            f"/api/v1/admin/institution/students/{student_id}/progress", headers=headers_b
+        ).status_code
+        == 404
+    )
+    detail = client.get(
+        f"/api/v1/admin/institution/students/{student_id}/progress", headers=headers_a
+    )
+    assert detail.status_code == 200, detail.text
+    detail_body = detail.json()
+    assert detail_body["student_id"] == student_id
+    assert any(item["course_id"] == course_id for item in detail_body["courses"])
     for kind in ("enrollments", "course-completion", "assessments", "certificates"):
         assert (
             client.get(
@@ -671,3 +699,89 @@ def test_college_operations_and_cross_tenant_boundaries():
             ).status_code
             == 200
         )
+
+
+def test_revoked_enrollment_does_not_unlock_learning_content():
+    with TestingSession() as db:
+        suffix = uuid.uuid4().hex[:8]
+        college = db.scalar(select(StudentProfile).limit(1)).college
+        program = db.scalar(select(Program).limit(1))
+        course = Course(
+            title=f"Revoked Course {suffix}", slug=f"revoked-{suffix}",
+            description="Access regression", level="Beginner", duration_hours=1,
+            status="published",
+        )
+        user = User(
+            email=f"revoked-{suffix}@example.com", mobile=f"97{int(suffix, 16) % 100000000:08d}",
+            password_hash=hash_password("Student123"), role="student",
+        )
+        db.add_all([course, user]); db.flush()
+        section = CourseSection(course_id=course.id, title="Section", sequence=1)
+        profile = StudentProfile(
+            user_id=user.id, college_id=college.id, program_id=program.id,
+            full_name="Revoked Student", current_year="1",
+        )
+        db.add_all([section, profile]); db.flush()
+        lesson = CourseLesson(
+            section_id=section.id, title="Private lesson", lesson_type="article",
+            duration_minutes=5, sequence=1, article_content="Locked content",
+        )
+        enrollment = CourseEnrollment(user_id=user.id, course_id=course.id, status="revoked")
+        db.add_all([lesson, enrollment]); db.commit()
+        user_id, course_id, lesson_id, enrollment_id = user.id, course.id, lesson.id, enrollment.id
+
+    token, _ = create_access_token(user_id, "student", 0)
+    headers = {"Authorization": f"Bearer {token}"}
+    detail = client.get(f"/api/v1/students/me/courses/{course_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["is_enrolled"] is False
+    assert detail.json()["sections"][0]["lessons"][0]["locked"] is True
+    assert client.put(
+        f"/api/v1/students/me/enrollments/{enrollment_id}/lessons/{lesson_id}/progress",
+        headers=headers, json={"status": "completed"},
+    ).status_code == 404
+
+
+def test_suspended_college_blocks_existing_student_session():
+    with TestingSession() as db:
+        suffix = uuid.uuid4().hex[:8]
+        college = db.scalar(select(StudentProfile).limit(1)).college
+        original_status = college.status
+        program = db.scalar(select(Program).limit(1))
+        user = User(
+            email=f"suspended-{suffix}@example.com",
+            mobile=f"96{int(suffix, 16) % 100000000:08d}",
+            password_hash=hash_password("Student123"),
+            role="student",
+        )
+        db.add(user)
+        db.flush()
+        db.add(StudentProfile(
+            user_id=user.id,
+            college_id=college.id,
+            program_id=program.id,
+            full_name="Suspended College Student",
+            current_year="1",
+        ))
+        db.commit()
+        user_id = user.id
+        credentials_version = user.credentials_version
+        college_id = college.id
+
+    token, _ = create_access_token(user_id, "student", credentials_version)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/v1/students/me/enrollments", headers=headers).status_code == 200
+
+    with TestingSession() as db:
+        college = db.get(College, college_id)
+        college.status = "suspended"
+        db.commit()
+
+    blocked = client.get("/api/v1/students/me/enrollments", headers=headers)
+    assert blocked.status_code == 403
+    assert "institution" in blocked.json()["detail"].lower()
+
+    with TestingSession() as db:
+        college = db.get(College, college_id)
+        college.status = original_status
+        db.commit()

@@ -1,5 +1,4 @@
 import io
-import secrets
 import uuid
 from datetime import datetime, timezone
 
@@ -18,6 +17,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_student
 from ..models import Certificate, CertificateEvent, CourseEnrollment, CourseLesson, LessonProgress, User
+from ..services.certificate import certificate_number, is_eligible, issue_certificate
 
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Certificates"])
 admin_router = APIRouter(prefix="/api/v1/admin/certificates", tags=["Admin Certificates"])
@@ -26,11 +26,6 @@ public_router = APIRouter(prefix="/api/v1/certificates", tags=["Certificate Veri
 
 class RevokeIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
-
-
-def _number() -> str:
-    now = datetime.now(timezone.utc)
-    return f"EDU-{now:%Y%m}-{secrets.token_hex(5).upper()}"
 
 
 def _out(item: Certificate, include_events: bool = False) -> dict:
@@ -45,28 +40,6 @@ def _out(item: Certificate, include_events: bool = False) -> dict:
         result["events"] = [{"type": event.event_type, "details": event.details,
             "created_at": event.created_at} for event in item.events]
     return result
-
-
-def _eligible(enrollment: CourseEnrollment, db: Session) -> bool:
-    lesson_ids = list(db.scalars(select(CourseLesson.id).join(CourseLesson.section)
-        .where(CourseLesson.section.has(course_id=enrollment.course_id))))
-    completed = db.scalars(select(LessonProgress.lesson_id).where(
-        LessonProgress.enrollment_id == enrollment.id, LessonProgress.status == "completed")).all()
-    return bool(lesson_ids) and enrollment.status == "completed" and enrollment.progress_percentage == 100 and set(lesson_ids) <= set(completed)
-
-
-def _issue(enrollment: CourseEnrollment, actor_id: uuid.UUID | None, db: Session,
-           parent: Certificate | None = None) -> Certificate:
-    student_name = enrollment.user.student_profile.full_name if enrollment.user.student_profile else enrollment.user.email
-    item = Certificate(certificate_number=_number(), verification_token=secrets.token_urlsafe(32),
-        student_id=enrollment.user_id, course_id=enrollment.course_id, enrollment_id=enrollment.id,
-        parent_certificate_id=parent.id if parent else None, student_name=student_name,
-        course_title=enrollment.course.title, instructor_name=enrollment.course.instructor_name,
-        status="issued", issued_by_user_id=actor_id)
-    db.add(item); db.flush()
-    db.add(CertificateEvent(certificate_id=item.id, event_type="reissued" if parent else "issued",
-        actor_user_id=actor_id, details={"parent_certificate_id": str(parent.id) if parent else None}))
-    return item
 
 
 def _pdf(item: Certificate) -> io.BytesIO:
@@ -106,7 +79,7 @@ def my_certificates(user: User = Depends(get_current_student), db: Session = Dep
 
 
 @student_router.post("/enrollments/{enrollment_id}/certificate", status_code=status.HTTP_201_CREATED)
-def issue_certificate(enrollment_id: uuid.UUID, response: Response,
+def request_certificate(enrollment_id: uuid.UUID, response: Response,
                       user: User = Depends(get_current_student), db: Session = Depends(get_db)):
     enrollment = db.get(CourseEnrollment, enrollment_id)
     if not enrollment or enrollment.user_id != user.id:
@@ -116,9 +89,9 @@ def issue_certificate(enrollment_id: uuid.UUID, response: Response,
     if existing:
         response.status_code = status.HTTP_200_OK
         return _out(existing)
-    if not _eligible(enrollment, db):
+    if not is_eligible(enrollment, db):
         raise HTTPException(status_code=409, detail="Complete every course lesson before generating a certificate")
-    item = _issue(enrollment, user.id, db); db.commit(); db.refresh(item)
+    item = issue_certificate(enrollment, user.id, db); db.commit(); db.refresh(item)
     return _out(item)
 
 
@@ -140,6 +113,7 @@ def verify_certificate(verification_token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Certificate not found")
     return {"is_valid": item.status == "issued", "certificate_number": item.certificate_number,
         "student_name": item.student_name, "course_title": item.course_title,
+        "instructor_name": item.instructor_name, "enrolled_at": item.enrollment.enrolled_at,
         "issued_at": item.issued_at, "status": item.status,
         "revoked_at": item.revoked_at, "revocation_reason": item.revocation_reason}
 
@@ -182,10 +156,10 @@ def reissue_certificate(certificate_id: uuid.UUID, admin: User = Depends(get_cur
     if item.status != "revoked":
         raise HTTPException(status_code=409, detail="Reissue requires a revoked certificate")
     enrollment = db.get(CourseEnrollment, item.enrollment_id)
-    if not enrollment or not _eligible(enrollment, db):
+    if not enrollment or not is_eligible(enrollment, db):
         raise HTTPException(status_code=409, detail="Enrollment is no longer eligible for certification")
     item.status = "superseded"
-    replacement = _issue(enrollment, admin.id, db, parent=item)
+    replacement = issue_certificate(enrollment, admin.id, db, parent=item)
     db.add(CertificateEvent(certificate_id=item.id, event_type="superseded", actor_user_id=admin.id,
         details={"replacement_certificate_id": str(replacement.id)}))
     db.commit(); db.refresh(replacement)

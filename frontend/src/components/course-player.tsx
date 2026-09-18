@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
-export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding";
+export type LessonType = "video" | "article" | "quiz" | "assignment" | "coding_test";
 
 export interface Lesson {
   id: string;
@@ -52,7 +52,7 @@ const lessonIcon: Record<LessonType, React.ElementType> = {
   article: AlignLeft,
   quiz: HelpCircle,
   assignment: Paperclip,
-  coding: Code2,
+  coding_test: Code2,
 };
 
 function fmt(secs: number) {
@@ -492,10 +492,10 @@ function ArticleView({ lesson }: { lesson: Lesson }) {
 
 function QuizView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This quiz is not configured yet.</div>; }
 function AssignmentView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This assignment is not configured yet.</div>; }
-function CodingView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This coding test is not configured yet.</div>; }
+function CodingTestView() { return <div className="p-6 bg-white border border-slate-200 rounded-xl text-[13px] text-[#5A6A8A]">This coding test is not configured yet.</div>; }
 
 // ─── MAIN COURSE PLAYER ───────────────────────────────────────────────────────
-export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment, renderCoding }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderCoding?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
+export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress, renderQuiz, renderAssignment, renderCodingTest }: { course: CourseData; onBack: () => void; onLessonComplete?: (lessonId:string) => Promise<void> | void; onVideoProgress?: (lessonId:string,previousPosition:number,currentPosition:number,duration:number)=>Promise<{status:string;watched_percentage:number}>; renderQuiz?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderAssignment?: (lesson:Lesson,onPassed:()=>void)=>ReactNode; renderCodingTest?: (lesson:Lesson,onPassed:()=>void)=>ReactNode }) {
   const allLessons = course.sections.flatMap(s => s.lessons);
   const firstIncomplete = allLessons.find(l => !l.completed && !l.locked) ?? allLessons[0];
   const [activeLesson, setActiveLesson] = useState<Lesson>(firstIncomplete);
@@ -514,7 +514,7 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
   const markDone = (advance=true) => {
     if (!completedIds.includes(activeLesson.id)) {
       setCompletedIds(ids => [...ids, activeLesson.id]);
-      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding") void onLessonComplete?.(activeLesson.id);
+      if (activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding_test") void onLessonComplete?.(activeLesson.id);
     }
     if (advance&&curIdx < allUnlocked.length - 1) setActiveLesson(allUnlocked[curIdx + 1]);
   };
@@ -522,7 +522,7 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
   const Icon = lessonIcon[activeLesson.type];
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-[#1a1a1a]" style={{ fontFamily: "var(--font-sans)" }}>
+    <div className="relative flex h-dvh overflow-hidden bg-[#1a1a1a]" style={{ fontFamily: "var(--font-sans)" }}>
 
       {/* ── Sidebar ── */}
       {sidebarOpen && <button aria-label="Close curriculum" onClick={()=>setSidebarOpen(false)} className="absolute inset-0 z-20 bg-black/45 md:hidden" />}
@@ -626,10 +626,10 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
                 ${activeLesson.type === "video" ? "bg-blue-50 text-blue-700 border-blue-200" :
                   activeLesson.type === "quiz" ? "bg-purple-50 text-purple-700 border-purple-200" :
                   activeLesson.type === "assignment" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                  activeLesson.type === "coding" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
+                  activeLesson.type === "coding_test" ? "bg-indigo-50 text-indigo-700 border-indigo-200" :
                   "bg-slate-100 text-slate-600 border-slate-200"}`}>
                 <Icon size={10} />
-                {activeLesson.type.charAt(0).toUpperCase() + activeLesson.type.slice(1)}
+                {activeLesson.type === "coding_test" ? "Coding Test" : activeLesson.type.charAt(0).toUpperCase() + activeLesson.type.slice(1)}
               </span>
               {activeLesson.type === "video" && (
                 <span className="text-[12px] text-[#9AA5BE] flex items-center gap-1"><Clock size={11} />{activeLesson.duration}m</span>
@@ -644,10 +644,10 @@ export function CoursePlayer({ course, onBack, onLessonComplete, onVideoProgress
             {activeLesson.type === "article" && <ArticleView lesson={activeLesson} />}
             {activeLesson.type === "quiz" && (renderQuiz ? renderQuiz(activeLesson, ()=>markDone(true)) : <QuizView />)}
             {activeLesson.type === "assignment" && (renderAssignment ? renderAssignment(activeLesson, ()=>markDone(true)) : <AssignmentView />)}
-            {activeLesson.type === "coding" && (renderCoding ? renderCoding(activeLesson, ()=>markDone(true)) : <CodingView />)}
+            {activeLesson.type === "coding_test" && (renderCodingTest ? renderCodingTest(activeLesson, ()=>markDone(true)) : <CodingTestView />)}
 
             {/* mark complete */}
-            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding" && (
+            {activeLesson.type !== "quiz" && activeLesson.type !== "assignment" && activeLesson.type !== "coding_test" && (
               completedIds.includes(activeLesson.id) ? (
                 <div className="mt-5 flex items-center justify-center gap-2 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-[13.5px] font-semibold">
                   <CheckCircle2 size={16} /> Lesson completed!
