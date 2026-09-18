@@ -6,16 +6,16 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from .career_schemas import CareerGoalInput, CareerGoalOut, SkillInput, SkillOut
-from .config import get_settings
-from .database import get_db
-from .dependencies import get_current_student
-from .models import CareerGoal, Course, CourseEnrollment, CourseLesson, LessonProgress, Skill, StudentLearningActivity, StudentResume, StudentRoadmap, StudentSkill, User
-from .resume_service import evaluate_uploaded_resume, extract_resume_text, parse_resume_data
-from .resume_builder_service import sync_uploaded_resume_to_builder
-from .roadmap_service import PROMPT_VERSION, generate_roadmap
+from ..schemas.career import CareerGoalInput, CareerGoalOut, SkillInput, SkillOut
+from ..config import get_settings
+from ..database import get_db
+from ..dependencies import get_current_student
+from ..models import CareerGoal, Course, CourseEnrollment, CourseLesson, CourseSection, LessonProgress, Skill, StudentLearningActivity, StudentResume, StudentRoadmap, StudentSkill, User
+from ..services.resume import evaluate_uploaded_resume, extract_resume_text, parse_resume_data
+from ..services.resume_builder import sync_uploaded_resume_to_builder
+from ..services.roadmap import PROMPT_VERSION, generate_roadmap
 
 
 router = APIRouter(prefix="/api/v1/students/me", tags=["Student Career Journey"])
@@ -288,7 +288,11 @@ def enroll(course_id: uuid.UUID, roadmap_id: uuid.UUID | None = None,
 
 @router.get("/enrollments")
 def enrollments(user: User = Depends(get_current_student), db: Session = Depends(get_db)):
-    items = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id).order_by(CourseEnrollment.enrolled_at.desc())))
+    items = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id)
+        .options(
+            selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons),
+            selectinload(CourseEnrollment.lesson_progress),
+        ).order_by(CourseEnrollment.enrolled_at.desc())))
     result = []
     for item in items:
         lesson_ids = [lesson.id for section in item.course.sections for lesson in section.lessons]

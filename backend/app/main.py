@@ -7,22 +7,22 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .admin_course_router import router as admin_course_router
-from .quiz_router import admin_router as admin_quiz_router, student_router as student_quiz_router
-from .coding_router import admin_router as admin_coding_router, student_router as student_coding_router
-from .assignment_router import admin_router as admin_assignment_router, student_router as student_assignment_router
-from .analytics_router import admin_router as admin_analytics_router, student_router as student_analytics_router
-from .certificate_router import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
-from .resume_builder_router import router as resume_builder_router
-from .institution_router import public_router as institution_public_router, router as institution_admin_router
-from .college_portal_router import router as college_portal_router
-from .admin_schemas import AdminLoginIn, AdminMeOut
-from .career_router import router as career_router
+from .routers.admin_course import router as admin_course_router
+from .routers.quiz import admin_router as admin_quiz_router, student_router as student_quiz_router
+from .routers.coding import admin_router as admin_coding_router, student_router as student_coding_router
+from .routers.assignment import admin_router as admin_assignment_router, student_router as student_assignment_router
+from .routers.analytics import admin_router as admin_analytics_router, student_router as student_analytics_router
+from .routers.certificate import admin_router as admin_certificate_router, public_router as public_certificate_router, student_router as student_certificate_router
+from .routers.resume_builder import router as resume_builder_router
+from .routers.institution import public_router as institution_public_router, router as institution_admin_router
+from .routers.college_portal import router as college_portal_router
+from .schemas.admin import AdminLoginIn, AdminMeOut
+from .routers.career import router as career_router
 from .config import get_settings
 from .database import get_db
 from .dependencies import get_current_lms_admin, get_current_staff, get_current_student
 from .models import College, CollegeProgram, Program, RefreshToken, StudentOnboardingStep, StudentProfile, User
-from .schemas import (
+from .schemas.core import (
     CollegeOut,
     CurrentStudentOut,
     OnboardingProgressOut,

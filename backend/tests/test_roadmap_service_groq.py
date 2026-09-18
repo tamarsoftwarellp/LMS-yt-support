@@ -1,7 +1,8 @@
 import json
 from types import SimpleNamespace
 
-from app import resume_builder_service, roadmap_service
+from app.services import resume_builder as resume_builder_service
+from app.services import roadmap as roadmap_service
 
 
 def test_groq_roadmap_generation_uses_json_mode(monkeypatch) -> None:

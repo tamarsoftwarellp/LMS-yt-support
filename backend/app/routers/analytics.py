@@ -2,12 +2,12 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import distinct, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import case, distinct, func, select
+from sqlalchemy.orm import Session, selectinload
 
-from .database import get_db
-from .dependencies import get_current_admin, get_current_student
-from .models import (AssignmentSubmission, Course, CourseEnrollment, LessonProgress,
+from ..database import get_db
+from ..dependencies import get_current_admin, get_current_student
+from ..models import (AssignmentSubmission, Course, CourseEnrollment, CourseSection, LessonProgress,
                      StudentLearningActivity, StudentQuizAttempt, User)
 
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Analytics"])
@@ -28,13 +28,15 @@ def _streak(activity_dates: set[date]) -> int:
 
 
 def _student_dashboard(user: User, db: Session) -> dict:
-    enrollments = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id)))
+    enrollments = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == user.id)
+        .options(selectinload(CourseEnrollment.course).selectinload(Course.sections).selectinload(CourseSection.lessons))))
     enrollment_ids = [item.id for item in enrollments]
     progress_items = list(db.scalars(select(LessonProgress).where(LessonProgress.enrollment_id.in_(enrollment_ids)))) if enrollment_ids else []
     attempts = list(db.scalars(select(StudentQuizAttempt).where(
         StudentQuizAttempt.enrollment_id.in_(enrollment_ids), StudentQuizAttempt.status == "submitted"))) if enrollment_ids else []
     submissions = list(db.scalars(select(AssignmentSubmission).where(
-        AssignmentSubmission.enrollment_id.in_(enrollment_ids), AssignmentSubmission.status != "draft"))) if enrollment_ids else []
+        AssignmentSubmission.enrollment_id.in_(enrollment_ids), AssignmentSubmission.status != "draft")
+        .options(selectinload(AssignmentSubmission.evaluations)))) if enrollment_ids else []
     activities = list(db.scalars(select(StudentLearningActivity).where(StudentLearningActivity.user_id == user.id)
         .order_by(StudentLearningActivity.occurred_at.desc()).limit(100)))
     total_lessons = sum(len(section.lessons) for enrollment in enrollments for section in enrollment.course.sections)
@@ -99,13 +101,21 @@ def student_progress(user: User = Depends(get_current_student), db: Session = De
 
 def _course_performance(db: Session) -> list[dict]:
     courses = list(db.scalars(select(Course).order_by(Course.title)))
+    rows = db.execute(select(
+        CourseEnrollment.course_id.label("course_id"),
+        func.count(CourseEnrollment.id).label("enrollment_count"),
+        func.sum(case((CourseEnrollment.status == "completed", 1), else_=0)).label("completed_count"),
+        func.avg(CourseEnrollment.progress_percentage).label("avg_progress"),
+    ).group_by(CourseEnrollment.course_id)).all()
+    stats = {row.course_id: row for row in rows}
     result = []
     for course in courses:
-        enrollments = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.course_id == course.id)))
+        row = stats.get(course.id)
+        enrollment_count = row.enrollment_count if row else 0
         result.append({"course_id": course.id, "title": course.title, "status": course.status,
-            "enrollment_count": len(enrollments),
-            "completion_rate": round(sum(1 for item in enrollments if item.status == "completed") * 100 / len(enrollments)) if enrollments else 0,
-            "average_progress": round(sum(item.progress_percentage for item in enrollments) / len(enrollments)) if enrollments else 0})
+            "enrollment_count": enrollment_count,
+            "completion_rate": round(row.completed_count * 100 / enrollment_count) if row and enrollment_count else 0,
+            "average_progress": round(row.avg_progress) if row and row.avg_progress is not None else 0})
     return sorted(result, key=lambda item: (-item["enrollment_count"], item["title"]))
 
 
@@ -142,14 +152,26 @@ def admin_course_analytics(db: Session = Depends(get_db), admin: User = Depends(
 @admin_router.get("/students")
 def admin_student_analytics(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
     del admin
-    students = list(db.scalars(select(User).where(User.role == "student")))
+    students = list(db.scalars(select(User).where(User.role == "student").options(selectinload(User.student_profile))))
+    student_ids = [item.id for item in students]
+    enrollment_rows = db.execute(select(
+        CourseEnrollment.user_id.label("user_id"),
+        func.count(CourseEnrollment.id).label("enrollment_count"),
+        func.avg(CourseEnrollment.progress_percentage).label("avg_progress"),
+    ).where(CourseEnrollment.user_id.in_(student_ids)).group_by(CourseEnrollment.user_id)).all() if student_ids else []
+    enrollment_stats = {row.user_id: row for row in enrollment_rows}
+    minute_rows = db.execute(select(
+        StudentLearningActivity.user_id.label("user_id"),
+        func.sum(StudentLearningActivity.seconds_delta).label("total_seconds"),
+    ).where(StudentLearningActivity.user_id.in_(student_ids)).group_by(StudentLearningActivity.user_id)).all() if student_ids else []
+    minute_stats = {row.user_id: round((row.total_seconds or 0) / 60) for row in minute_rows}
     result = []
     for student in students:
-        enrollments = list(db.scalars(select(CourseEnrollment).where(CourseEnrollment.user_id == student.id)))
-        minutes = round((db.scalar(select(func.sum(StudentLearningActivity.seconds_delta)).where(StudentLearningActivity.user_id == student.id)) or 0) / 60)
+        row = enrollment_stats.get(student.id)
         result.append({"student_id": student.id, "name": student.student_profile.full_name if student.student_profile else student.email,
-            "email": student.email, "enrollments": len(enrollments), "learning_minutes": minutes,
-            "average_progress": round(sum(item.progress_percentage for item in enrollments) / len(enrollments)) if enrollments else 0})
+            "email": student.email, "enrollments": row.enrollment_count if row else 0,
+            "learning_minutes": minute_stats.get(student.id, 0),
+            "average_progress": round(row.avg_progress) if row and row.avg_progress is not None else 0})
     return sorted(result, key=lambda item: (-item["learning_minutes"], item["name"]))
 
 

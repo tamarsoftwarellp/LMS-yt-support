@@ -6,9 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .database import get_db
-from .dependencies import get_current_lms_admin
-from .institution_schemas import (
+from ..database import get_db
+from ..dependencies import get_current_lms_admin
+from ..schemas.institution import (
     InstitutionActionIn,
     InstitutionDetailOut,
     InstitutionHistoryEntry,
@@ -16,14 +16,14 @@ from .institution_schemas import (
     InstitutionRegisterIn,
     InstitutionRegisterOut,
 )
-from .models import (
+from ..models import (
     College,
     CollegeProfileChangeRequest,
     InstitutionStatusHistory,
     StudentProfile,
     User,
 )
-from .security import hash_password
+from ..security import hash_password
 
 public_router = APIRouter(
     prefix="/api/v1/institutions", tags=["Institution Registration"]

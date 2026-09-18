@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .certificate_router import _eligible, _issue
-from .coding_schemas import CodingChallengeUpsertIn, CodingSubmitIn
-from .database import get_db
-from .dependencies import get_current_admin, get_current_student
-from .models import (Certificate, CodingChallenge, CourseEnrollment, CourseLesson, LessonProgress,
+from .certificate import _eligible, _issue
+from ..schemas.coding import CodingChallengeUpsertIn, CodingSubmitIn
+from ..database import get_db
+from ..dependencies import get_current_admin, get_current_student
+from ..models import (Certificate, CodingChallenge, CourseEnrollment, CourseLesson, LessonProgress,
                      StudentCodingSubmission, StudentLearningActivity, User)
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Coding Challenges"])

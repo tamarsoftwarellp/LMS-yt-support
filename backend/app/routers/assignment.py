@@ -8,11 +8,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .assignment_schemas import AssignmentEvaluationIn, AssignmentUpsertIn
-from .config import get_settings
-from .database import get_db
-from .dependencies import get_current_admin, get_current_student
-from .models import (Assignment, AssignmentEvaluation, AssignmentSubmission, Course, CourseEnrollment,
+from ..schemas.assignment import AssignmentEvaluationIn, AssignmentUpsertIn
+from ..config import get_settings
+from ..database import get_db
+from ..dependencies import get_current_admin, get_current_student
+from ..models import (Assignment, AssignmentEvaluation, AssignmentSubmission, Course, CourseEnrollment,
                      CourseLesson, CourseSection, LessonProgress, StudentLearningActivity, User)
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Assignments"])

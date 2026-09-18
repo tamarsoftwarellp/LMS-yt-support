@@ -14,10 +14,10 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from .config import get_settings
-from .database import get_db
-from .dependencies import get_current_admin, get_current_student
-from .models import Certificate, CertificateEvent, CourseEnrollment, CourseLesson, LessonProgress, User
+from ..config import get_settings
+from ..database import get_db
+from ..dependencies import get_current_admin, get_current_student
+from ..models import Certificate, CertificateEvent, CourseEnrollment, CourseLesson, LessonProgress, User
 
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Certificates"])
 admin_router = APIRouter(prefix="/api/v1/admin/certificates", tags=["Admin Certificates"])

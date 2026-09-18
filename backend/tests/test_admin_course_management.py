@@ -13,8 +13,8 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import AssignmentSubmission, Certificate, College, CollegeProgram, Course, CourseEnrollment, CourseLesson, CourseSection, LessonProgress, Program, User
 from app.security import hash_password
-from app.admin_course_router import _extract_youtube_id
-from app.admin_schemas import AdminLessonIn
+from app.routers.admin_course import _extract_youtube_id
+from app.schemas.admin import AdminLessonIn
 
 
 engine = create_engine(

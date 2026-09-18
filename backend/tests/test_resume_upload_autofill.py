@@ -1,4 +1,4 @@
-from app.resume_service import evaluate_uploaded_resume, parse_resume_data
+from app.services.resume import evaluate_uploaded_resume, parse_resume_data
 
 
 def test_resume_sections_are_extracted_for_builder():

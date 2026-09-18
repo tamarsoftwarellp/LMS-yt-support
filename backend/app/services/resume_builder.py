@@ -6,9 +6,9 @@ import logging
 from fastapi import HTTPException, status
 from groq import AuthenticationError, BadRequestError, Groq, NotFoundError, RateLimitError
 
-from .config import get_settings
-from .resume_builder_schemas import ResumeContent
-from .models import ResumeBuilderProfile, StudentResume, User
+from ..config import get_settings
+from ..schemas.resume_builder import ResumeContent
+from ..models import ResumeBuilderProfile, StudentResume, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

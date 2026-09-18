@@ -10,8 +10,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.career_schemas import RoadmapDraft
-from app.resume_builder_schemas import ResumeContent
+from app.schemas.career import RoadmapDraft
+from app.schemas.resume_builder import ResumeContent
 from app.models import College, CollegeProgram, Course, CourseLesson, CourseSection, Program, User
 
 
@@ -183,7 +183,7 @@ def test_career_flow_generates_recommendations_and_enrolls(monkeypatch) -> None:
                     "milestones": ["Complete fundamentals"],
                     "projects": [{"title": "Task app", "description": "Build a browser task app"}]}],
     })
-    monkeypatch.setattr("app.career_router.generate_roadmap", lambda snapshot: (draft, "test-model"))
+    monkeypatch.setattr("app.routers.career.generate_roadmap", lambda snapshot: (draft, "test-model"))
     roadmap = client.post("/api/v1/students/me/roadmaps/generate", headers=headers)
     assert roadmap.status_code == 201, roadmap.text
     body = roadmap.json()
@@ -263,7 +263,7 @@ def test_student_generates_edits_scores_and_downloads_ats_resume(monkeypatch) ->
     assert client.put("/api/v1/students/me/resume-builder", headers=headers, json=profile).status_code == 200
 
     content = ResumeContent(professional_summary="Computer science student building reliable backend applications with Python and FastAPI.", skills=["Python", "FastAPI"], educations=profile["educations"], experiences=[], projects=profile["projects"], certifications=[], achievements=[], languages=["English"])
-    monkeypatch.setattr("app.resume_builder_router.generate_resume_content", lambda snapshot: (content, "test-groq-model"))
+    monkeypatch.setattr("app.routers.resume_builder.generate_resume_content", lambda snapshot: (content, "test-groq-model"))
     created = client.post("/api/v1/students/me/resumes/generate", headers=headers, json={"target_role": "Backend Developer"})
     assert created.status_code == 201, created.text
     resume = created.json()

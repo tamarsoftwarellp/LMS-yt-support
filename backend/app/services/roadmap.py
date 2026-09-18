@@ -3,8 +3,8 @@ import json
 from fastapi import HTTPException, status
 from groq import AuthenticationError, Groq, NotFoundError, RateLimitError
 
-from .career_schemas import RoadmapDraft
-from .config import get_settings
+from ..schemas.career import RoadmapDraft
+from ..config import get_settings
 
 
 PROMPT_VERSION = "groq-v1"

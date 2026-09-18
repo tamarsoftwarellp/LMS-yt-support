@@ -14,16 +14,16 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .college_portal_schemas import (
+from ..schemas.college_portal import (
     InstitutionProfileOut,
     InstitutionProfileUpdateIn,
     InstitutionProgramOut,
     InstitutionStudentOut,
 )
-from .database import get_db
-from .dependencies import get_current_college_admin
-from .config import get_settings
-from .models import (
+from ..database import get_db
+from ..dependencies import get_current_college_admin
+from ..config import get_settings
+from ..models import (
     AssignmentSubmission,
     Certificate,
     College,
@@ -44,7 +44,7 @@ from .models import (
     StudentQuizAttempt,
     User,
 )
-from .security import hash_password
+from ..security import hash_password
 
 router = APIRouter(prefix="/api/v1/admin/institution", tags=["College Portal"])
 

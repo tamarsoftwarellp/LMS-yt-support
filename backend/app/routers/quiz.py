@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .database import get_db
-from .dependencies import get_current_admin, get_current_student
-from .models import (CourseEnrollment, CourseLesson, LessonProgress, Quiz, QuizOption, QuizQuestion,
+from ..database import get_db
+from ..dependencies import get_current_admin, get_current_student
+from ..models import (CourseEnrollment, CourseLesson, LessonProgress, Quiz, QuizOption, QuizQuestion,
                      StudentLearningActivity, StudentQuizAnswer, StudentQuizAttempt, User)
-from .quiz_schemas import QuizSubmitIn, QuizUpsertIn
+from ..schemas.quiz import QuizSubmitIn, QuizUpsertIn
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["Admin Quiz Builder"])
 student_router = APIRouter(prefix="/api/v1/students/me", tags=["Student Quiz Attempts"])

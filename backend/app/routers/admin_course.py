@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from .admin_schemas import (
+from ..schemas.admin import (
     ActionResult,
     AdminCourseCreateIn,
     AdminCourseDetailOut,
@@ -26,9 +26,9 @@ from .admin_schemas import (
     PublicationReadinessOut,
     ReorderPayload,
 )
-from .database import get_db
-from .dependencies import get_current_admin
-from .models import Course, CourseEnrollment, CourseLesson, CourseSection, User
+from ..database import get_db
+from ..dependencies import get_current_admin
+from ..models import Course, CourseEnrollment, CourseLesson, CourseSection, User
 
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin LMS"])

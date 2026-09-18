@@ -13,12 +13,12 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .database import get_db
-from .dependencies import get_current_student
-from .models import (Certificate, CourseEnrollment, GeneratedResume, ResumeAtsEvaluation,
+from ..database import get_db
+from ..dependencies import get_current_student
+from ..models import (Certificate, CourseEnrollment, GeneratedResume, ResumeAtsEvaluation,
                      ResumeBuilderProfile, StudentResume, StudentSkill, User)
-from .resume_builder_schemas import GenerateResumeIn, ResumeBuilderIn, UpdateResumeIn
-from .resume_builder_service import PROMPT_VERSION, _json_safe, ats_evaluate, generate_resume_content, sync_uploaded_resume_to_builder
+from ..schemas.resume_builder import GenerateResumeIn, ResumeBuilderIn, UpdateResumeIn
+from ..services.resume_builder import PROMPT_VERSION, _json_safe, ats_evaluate, generate_resume_content, sync_uploaded_resume_to_builder
 
 router = APIRouter(prefix="/api/v1/students/me", tags=["ATS Resume Builder"])
 
